@@ -1,6 +1,6 @@
 mod components;
 
-use components::TopHeader;
+use components::{MiniSidebar, TopHeader};
 use eframe::egui;
 
 fn main() -> Result<(), eframe::Error> {
@@ -33,6 +33,7 @@ fn main() -> Result<(), eframe::Error> {
 #[derive(Default)]
 struct MyApp {
     top_header: TopHeader,
+    mini_sidebar: MiniSidebar,
 }
 
 impl eframe::App for MyApp {
@@ -40,6 +41,20 @@ impl eframe::App for MyApp {
         self.top_header.show(ui);
 
         let bg = egui::Color32::from_rgb(18, 18, 22);
+
+        // Kill the panel separator line globally before creating panels
+        ui.style_mut().visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+
+        // Sidebar on the right + main content
+        let sidebar_bg = egui::Color32::from_rgb(14, 14, 18);
+        egui::Panel::right("mini_sidebar")
+            .exact_size(58.0)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(sidebar_bg).stroke(egui::Stroke::NONE))
+            .show_inside(ui, |ui| {
+                self.mini_sidebar.show(ui);
+            });
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(bg))
             .show_inside(ui, |ui| {

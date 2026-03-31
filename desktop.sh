@@ -1,2 +1,2 @@
 #!/bin/bash
-RUST_BACKTRACE=full cargo run -p zaned-desktop
+RUST_BACKTRACE=full cargo run -p Zaned
