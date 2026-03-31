@@ -1,0 +1,12 @@
+[package]
+name = "zaned-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zaned-core = { path = "../../crates/core" }
+zaned-api-client = { path = "../../crates/api-client" }
+eframe = "0.34.1"
+egui = "0.34.1"
+egui-phosphor = "0.12"
+tokio = { version = "1.50", features = ["rt-multi-thread"] }
