@@ -1,7 +1,9 @@
 mod components;
+mod ui_components;
 
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
+use ui_components::widgets::charts::{CandleData, ChartWidget, JsonCandle};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -30,12 +32,35 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-#[derive(Default)]
 struct MyApp {
     top_header: TopHeader,
     widgets_control: WidgetsControl,
     main_sidebar: MainSidebar,
     mini_sidebar: MiniSidebar,
+    chart: Option<ChartWidget>,
+}
+
+impl Default for MyApp {
+    fn default() -> Self {
+        let mut chart = None;
+        let json_str = std::fs::read_to_string("AAPL.json").unwrap_or_default();
+        if !json_str.is_empty() {
+            if let Ok(candles) = serde_json::from_str::<Vec<JsonCandle>>(&json_str) {
+                if !candles.is_empty() {
+                    let data = CandleData::from_json(&candles);
+                    chart = Some(ChartWidget::new(data));
+                }
+            }
+        }
+
+        Self {
+            top_header: TopHeader::default(),
+            widgets_control: WidgetsControl::default(),
+            main_sidebar: MainSidebar::default(),
+            mini_sidebar: MiniSidebar::default(),
+            chart,
+        }
+    }
 }
 
 impl eframe::App for MyApp {
@@ -70,8 +95,7 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(bg))
             .show_inside(ui, |ui| {
-                self.widgets_control.show(ui);
-                ui.label("Main content area");
+                self.widgets_control.show(ui, self.chart.as_mut());
             });
     }
 }

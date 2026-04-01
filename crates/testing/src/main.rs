@@ -1,4 +1,5 @@
 use markets::{Ticker, Interval, TimeRange};
+use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -6,20 +7,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chart = ticker.chart(Interval::OneDay, TimeRange::Max).await?;
 
-    println!("AAPL Historical Data (1d interval, max range)");
-    println!("Total candles: {}", chart.candles.len());
-    println!("---");
+    let candles: Vec<serde_json::Value> = chart.candles.iter().map(|c| {
+        let date = chrono::DateTime::from_timestamp(c.timestamp, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| c.timestamp.to_string());
 
-    for candle in &chart.candles {
-        let date = chrono::DateTime::from_timestamp(candle.timestamp, 0)
-            .map(|dt| dt.format("%Y-%m-%d").to_string())
-            .unwrap_or_else(|| candle.timestamp.to_string());
+        serde_json::json!({
+            "date": date,
+            "open": c.open,
+            "high": c.high,
+            "low": c.low,
+            "close": c.close,
+            "volume": c.volume,
+        })
+    }).collect();
 
-        println!(
-            "{date}  O: {:.2}  H: {:.2}  L: {:.2}  C: {:.2}  V: {}",
-            candle.open, candle.high, candle.low, candle.close, candle.volume
-        );
-    }
+    let json = serde_json::to_string_pretty(&candles)?;
+    fs::write("AAPL.json", &json)?;
+
+    println!("Wrote {} candles to AAPL.json", candles.len());
 
     Ok(())
 }

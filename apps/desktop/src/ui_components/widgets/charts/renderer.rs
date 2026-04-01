@@ -1,0 +1,147 @@
+use std::sync::Arc;
+use egui::mutex::Mutex;
+use egui_wgpu::CallbackTrait;
+use super::camera::Camera;
+use super::candle::{CandleData, CandleInstance};
+
+pub struct ChartResources {
+    pub pipeline: wgpu::RenderPipeline,
+    pub candle_buffer: wgpu::Buffer,
+    pub camera_buffer: wgpu::Buffer,
+    pub camera_bind_group: wgpu::BindGroup,
+    pub num_candles: u32,
+}
+
+impl ChartResources {
+    pub fn new(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+        data: &CandleData,
+        camera: &Camera,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("candle_shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/candle.wgsl").into()),
+        });
+
+        let camera_buffer = camera.create_buffer(device);
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("camera_bind_group_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("camera_bind_group"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("candle_pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("candle_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[CandleInstance::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let candle_buffer = data.create_buffer(device);
+
+        Self {
+            pipeline,
+            candle_buffer,
+            camera_buffer,
+            camera_bind_group,
+            num_candles: data.len() as u32,
+        }
+    }
+}
+
+pub struct ChartCallback {
+    pub camera: Arc<Mutex<Camera>>,
+    pub data: Arc<CandleData>,
+    pub initialized: Arc<Mutex<bool>>,
+    pub target_format: wgpu::TextureFormat,
+}
+
+impl CallbackTrait for ChartCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let mut initialized = self.initialized.lock();
+
+        if !*initialized {
+            let camera = self.camera.lock();
+            let format = self.target_format;
+            let chart_resources = ChartResources::new(device, format, &self.data, &camera);
+            resources.insert(chart_resources);
+            *initialized = true;
+        } else {
+            if let Some(res) = resources.get::<ChartResources>() {
+                let camera = self.camera.lock();
+                let uniform = camera.to_uniform();
+                queue.write_buffer(&res.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+            }
+        }
+
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu::CallbackResources,
+    ) {
+        if let Some(res) = resources.get::<ChartResources>() {
+            render_pass.set_pipeline(&res.pipeline);
+            render_pass.set_bind_group(0, &res.camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, res.candle_buffer.slice(..));
+            render_pass.draw(0..18, 0..res.num_candles);
+        }
+    }
+}

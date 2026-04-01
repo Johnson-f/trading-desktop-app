@@ -10,3 +10,9 @@ eframe = "0.34.1"
 egui = "0.34.1"
 egui-phosphor = "0.12"
 tokio = { version = "1.50", features = ["rt-multi-thread"] }
+wgpu = "29"
+egui-wgpu = "0.34"
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"

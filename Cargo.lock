@@ -6,10 +6,16 @@ version = 4
 name = "Zaned"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
+ "chrono",
  "eframe",
  "egui",
  "egui-phosphor",
+ "egui-wgpu",
+ "serde",
+ "serde_json",
  "tokio",
+ "wgpu",
  "zaned-api-client",
  "zaned-core",
 ]
@@ -5223,6 +5229,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "markets",
+ "serde_json",
  "tokio",
 ]
 
