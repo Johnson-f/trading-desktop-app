@@ -137,7 +137,7 @@ impl TopHeader {
                         .color(ICON_INACTIVE),
                 );
                 let te = egui::TextEdit::singleline(&mut self.search_query)
-                    .hint_text(RichText::new("Search any stocks").color(TEXT_MUTED))
+                    .hint_text(RichText::new("Search and view stocks").color(TEXT_MUTED))
                     .text_color(TEXT_PRIMARY)
                     .margin(egui::Margin::symmetric(4, 6));
                 ui.add_sized(Vec2::new(240.0, HEADER_HEIGHT - 12.0), te);
