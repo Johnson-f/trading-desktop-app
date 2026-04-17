@@ -103,8 +103,9 @@ impl ChartWidget {
         self.apply_legend_actions(pending);
 
         self.settings_modal.show(ui.ctx(), &mut self.manager);
-        self.paint_drawings(ui, chart_rect);
-        self.paint_crosshair(ui, chart_rect, &pane_slots);
+        let full_rect = full_chart_rect(chart_rect, &pane_slots);
+        self.paint_drawings(ui, chart_rect, full_rect);
+        self.paint_crosshair(ui, chart_rect, full_rect);
     }
 
     fn dispatch_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -362,16 +363,18 @@ impl ChartWidget {
         }
     }
 
-    fn paint_drawings(&self, ui: &egui::Ui, chart_rect: egui::Rect) {
+    fn paint_drawings(&self, ui: &egui::Ui, chart_rect: egui::Rect, full_rect: egui::Rect) {
         let camera = self.camera.lock();
-        let painter = ui.painter_at(chart_rect);
+        // Wide clip so tools that span sub-panes (vertical lines) can reach
+        // past chart_rect; other tools narrow the clip back themselves.
+        let painter = ui.painter_at(full_rect);
         for drawing in &self.drawings.committed {
             let Some(tool) = self.drawings.tool_for(drawing.def_id) else { continue };
-            tool.render(&painter, chart_rect, &camera, &drawing.points);
+            tool.render(&painter, chart_rect, full_rect, &camera, &drawing.points);
         }
         if let Some(draft) = self.drawings.draft.as_ref() {
             if let Some(tool) = self.drawings.tool_for(draft.def_id) {
-                tool.render_preview(&painter, chart_rect, &camera, &draft.points);
+                tool.render_preview(&painter, chart_rect, full_rect, &camera, &draft.points);
             }
         }
     }
@@ -380,19 +383,25 @@ impl ChartWidget {
         &self,
         ui: &egui::Ui,
         chart_rect: egui::Rect,
-        pane_slots: &[(egui::Rect, egui::Rect)],
+        full_rect: egui::Rect,
     ) {
         let camera = self.camera.lock();
-        let bottom = pane_slots
-            .last()
-            .map(|(_, p)| p.bottom())
-            .unwrap_or(chart_rect.bottom());
-        let full_rect = egui::Rect::from_min_max(
-            chart_rect.min,
-            egui::Pos2::new(chart_rect.right(), bottom),
-        );
         crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
     }
+}
+
+fn full_chart_rect(
+    chart_rect: egui::Rect,
+    pane_slots: &[(egui::Rect, egui::Rect)],
+) -> egui::Rect {
+    let bottom = pane_slots
+        .last()
+        .map(|(_, p)| p.bottom())
+        .unwrap_or(chart_rect.bottom());
+    egui::Rect::from_min_max(
+        chart_rect.min,
+        egui::Pos2::new(chart_rect.right(), bottom),
+    )
 }
 
 struct LegendItem {

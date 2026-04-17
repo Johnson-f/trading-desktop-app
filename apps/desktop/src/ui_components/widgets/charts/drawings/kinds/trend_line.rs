@@ -42,27 +42,37 @@ impl DrawingTool for TrendLine {
         two_click_input(ui, chart_rect, camera, draft, ID)
     }
 
-    fn render(&self, painter: &Painter, chart_rect: Rect, camera: &Camera, points: &[WorldPoint]) {
-        if points.len() < 2 {
-            return;
-        }
-        let a = world_to_screen(chart_rect, camera, points[0]);
-        let b = world_to_screen(chart_rect, camera, points[1]);
-        painter.line_segment([a, b], Stroke::new(STROKE_WIDTH, LINE_COLOR));
-        paint_endpoint(painter, a);
-        paint_endpoint(painter, b);
-    }
-
-    fn render_preview(
+    fn render(
         &self,
         painter: &Painter,
         chart_rect: Rect,
+        _full_rect: Rect,
         camera: &Camera,
         points: &[WorldPoint],
     ) {
         if points.len() < 2 {
             return;
         }
+        let painter = painter.with_clip_rect(chart_rect);
+        let a = world_to_screen(chart_rect, camera, points[0]);
+        let b = world_to_screen(chart_rect, camera, points[1]);
+        painter.line_segment([a, b], Stroke::new(STROKE_WIDTH, LINE_COLOR));
+        paint_endpoint(&painter, a);
+        paint_endpoint(&painter, b);
+    }
+
+    fn render_preview(
+        &self,
+        painter: &Painter,
+        chart_rect: Rect,
+        _full_rect: Rect,
+        camera: &Camera,
+        points: &[WorldPoint],
+    ) {
+        if points.len() < 2 {
+            return;
+        }
+        let painter = painter.with_clip_rect(chart_rect);
         let a = world_to_screen(chart_rect, camera, points[0]);
         let b = world_to_screen(chart_rect, camera, points[1]);
         painter.line_segment([a, b], Stroke::new(STROKE_WIDTH, PREVIEW_COLOR));

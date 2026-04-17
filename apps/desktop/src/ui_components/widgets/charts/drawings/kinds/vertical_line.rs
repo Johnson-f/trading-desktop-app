@@ -33,26 +33,41 @@ impl DrawingTool for VerticalLine {
         one_click_input(ui, chart_rect, camera, draft, ID)
     }
 
-    fn render(&self, painter: &Painter, chart_rect: Rect, camera: &Camera, points: &[WorldPoint]) {
-        paint(painter, chart_rect, camera, points, LINE_COLOR);
+    fn render(
+        &self,
+        painter: &Painter,
+        chart_rect: Rect,
+        full_rect: Rect,
+        camera: &Camera,
+        points: &[WorldPoint],
+    ) {
+        paint(painter, chart_rect, full_rect, camera, points, LINE_COLOR);
     }
 
     fn render_preview(
         &self,
         painter: &Painter,
         chart_rect: Rect,
+        full_rect: Rect,
         camera: &Camera,
         points: &[WorldPoint],
     ) {
-        paint(painter, chart_rect, camera, points, PREVIEW_COLOR);
+        paint(painter, chart_rect, full_rect, camera, points, PREVIEW_COLOR);
     }
 }
 
-fn paint(painter: &Painter, chart_rect: Rect, camera: &Camera, points: &[WorldPoint], color: Color32) {
+fn paint(
+    painter: &Painter,
+    chart_rect: Rect,
+    full_rect: Rect,
+    camera: &Camera,
+    points: &[WorldPoint],
+    color: Color32,
+) {
     let Some(p) = points.first() else { return };
     let x = world_to_screen(chart_rect, camera, *p).x;
-    if x < chart_rect.left() || x > chart_rect.right() {
+    if x < full_rect.left() || x > full_rect.right() {
         return;
     }
-    painter.vline(x, chart_rect.y_range(), Stroke::new(STROKE_WIDTH, color));
+    painter.vline(x, full_rect.y_range(), Stroke::new(STROKE_WIDTH, color));
 }

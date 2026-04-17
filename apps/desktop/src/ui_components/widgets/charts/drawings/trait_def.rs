@@ -48,8 +48,17 @@ pub trait DrawingTool: Send + Sync {
     ) -> InputResult;
 
     /// Render a committed drawing. World-space `points` are converted by the
-    /// tool using the camera.
-    fn render(&self, painter: &Painter, chart_rect: Rect, camera: &Camera, points: &[WorldPoint]);
+    /// tool using the camera. `full_rect` spans the main chart + sub-panes
+    /// (equals `chart_rect` when no sub-panes are visible); tools whose shape
+    /// should span all panes (e.g. vertical lines) paint against it.
+    fn render(
+        &self,
+        painter: &Painter,
+        chart_rect: Rect,
+        full_rect: Rect,
+        camera: &Camera,
+        points: &[WorldPoint],
+    );
 
     /// Render an in-progress preview. Defaults to the same look as a committed
     /// drawing; override if a tool wants a dashed / faded preview.
@@ -57,10 +66,11 @@ pub trait DrawingTool: Send + Sync {
         &self,
         painter: &Painter,
         chart_rect: Rect,
+        full_rect: Rect,
         camera: &Camera,
         points: &[WorldPoint],
     ) {
-        self.render(painter, chart_rect, camera, points);
+        self.render(painter, chart_rect, full_rect, camera, points);
     }
 }
 

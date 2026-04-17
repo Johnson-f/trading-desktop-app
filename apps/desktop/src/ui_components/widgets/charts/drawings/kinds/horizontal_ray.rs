@@ -36,18 +36,28 @@ impl DrawingTool for HorizontalRay {
         one_click_input(ui, chart_rect, camera, draft, ID)
     }
 
-    fn render(&self, painter: &Painter, chart_rect: Rect, camera: &Camera, points: &[WorldPoint]) {
-        paint(painter, chart_rect, camera, points, LINE_COLOR, true);
+    fn render(
+        &self,
+        painter: &Painter,
+        chart_rect: Rect,
+        _full_rect: Rect,
+        camera: &Camera,
+        points: &[WorldPoint],
+    ) {
+        let painter = painter.with_clip_rect(chart_rect);
+        paint(&painter, chart_rect, camera, points, LINE_COLOR, true);
     }
 
     fn render_preview(
         &self,
         painter: &Painter,
         chart_rect: Rect,
+        _full_rect: Rect,
         camera: &Camera,
         points: &[WorldPoint],
     ) {
-        paint(painter, chart_rect, camera, points, PREVIEW_COLOR, false);
+        let painter = painter.with_clip_rect(chart_rect);
+        paint(&painter, chart_rect, camera, points, PREVIEW_COLOR, false);
     }
 }
 
