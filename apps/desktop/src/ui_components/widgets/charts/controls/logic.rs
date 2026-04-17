@@ -1,6 +1,8 @@
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
-use super::{IndicatorBar, IndicatorModal};
+use super::indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal};
+use super::super::drawings;
+use super::super::indicators::IndicatorManager;
 
 const BG: Color32 = Color32::from_rgb(18, 18, 22);
 const BORDER: Color32 = Color32::from_rgb(30, 30, 33);
@@ -10,27 +12,26 @@ const HOVER_BG: Color32 = Color32::from_rgb(28, 28, 32);
 const ICON_ACTIVE_BG: Color32 = Color32::from_rgb(35, 35, 40);
 
 const TOOLBAR_ICONS: &[&str] = &[
-    egui_phosphor::regular::TREND_UP,       // 0 - Indicator
-    egui_phosphor::regular::PENCIL_SIMPLE,  // 1 - Drawings
-    egui_phosphor::regular::PAINT_BUCKET,   // 2
-    egui_phosphor::regular::CHART_BAR,      // 3 - Line Style
-    egui_phosphor::regular::CHART_LINE,     // 4
-    egui_phosphor::regular::TEXT_T,         // 5
-    egui_phosphor::regular::CLOUD,          // 6
-    egui_phosphor::regular::CURRENCY_DOLLAR,// 7
-    egui_phosphor::regular::SMILEY,         // 8
-    egui_phosphor::regular::CROSSHAIR,      // 9
-    egui_phosphor::regular::MAGNET,         // 10
-    egui_phosphor::regular::LOCK_SIMPLE,    // 11
-    egui_phosphor::regular::EYE,            // 12
-    egui_phosphor::regular::TRASH,          // 13
+    egui_phosphor::regular::TREND_UP,
+    egui_phosphor::regular::PENCIL_SIMPLE,
+    egui_phosphor::regular::PAINT_BUCKET,
+    egui_phosphor::regular::CHART_BAR,
+    egui_phosphor::regular::CHART_LINE,
+    egui_phosphor::regular::TEXT_T,
+    egui_phosphor::regular::CLOUD,
+    egui_phosphor::regular::CURRENCY_DOLLAR,
+    egui_phosphor::regular::SMILEY,
+    egui_phosphor::regular::CROSSHAIR,
+    egui_phosphor::regular::MAGNET,
+    egui_phosphor::regular::LOCK_SIMPLE,
+    egui_phosphor::regular::EYE,
+    egui_phosphor::regular::TRASH,
 ];
 
 const INDICATOR_TOOL_INDEX: usize = 0;
-const INDICATOR_INSERT_AFTER: usize = 9; // after CROSSHAIR
-
+const PENCIL_TOOL_INDEX: usize = 1;
+const INDICATOR_INSERT_AFTER: usize = 9;
 const SEPARATORS: &[usize] = &[9];
-
 const TOOLTIPS: &[&str] = &[
     "Indicator", "Drawings", "", "Line Style", "", "",
     "", "", "", "", "", "", "", "",
@@ -38,24 +39,34 @@ const TOOLTIPS: &[&str] = &[
 
 pub struct ChartToolbar {
     pub active_tool: usize,
+    pub active_drawing: Option<&'static str>,
     pub indicator_bar: IndicatorBar,
     pub indicator_modal: IndicatorModal,
     pub show_indicators: bool,
+    pub show_drawings: bool,
 }
 
 impl Default for ChartToolbar {
     fn default() -> Self {
         Self {
             active_tool: 0,
+            active_drawing: None,
             indicator_bar: IndicatorBar::default(),
             indicator_modal: IndicatorModal::default(),
             show_indicators: false,
+            show_drawings: false,
         }
     }
 }
 
 impl ChartToolbar {
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        manager: &mut IndicatorManager,
+    ) -> Option<IndicatorBarEvent> {
+        let mut bar_event: Option<IndicatorBarEvent> = None;
+
         egui::Frame::new()
             .fill(BG)
             .inner_margin(egui::Margin::symmetric(8, 4))
@@ -68,14 +79,21 @@ impl ChartToolbar {
                     ui.spacing_mut().item_spacing.x = 2.0;
 
                     for (i, icon) in TOOLBAR_ICONS.iter().enumerate() {
-                        // Hide trailing icons when indicator bar is expanded
                         if self.show_indicators && i > INDICATOR_INSERT_AFTER {
+                            continue;
+                        }
+                        // When the drawings bar is expanded, hide everything past
+                        // the pencil so the inline row has room.
+                        if self.show_drawings && i > PENCIL_TOOL_INDEX {
                             continue;
                         }
 
                         let is_indicator_btn = i == INDICATOR_TOOL_INDEX;
+                        let is_pencil_btn = i == PENCIL_TOOL_INDEX;
                         let is_active = if is_indicator_btn {
                             self.show_indicators
+                        } else if is_pencil_btn {
+                            self.show_drawings || self.active_drawing.is_some()
                         } else {
                             self.active_tool == i
                         };
@@ -108,12 +126,13 @@ impl ChartToolbar {
                         if btn.clicked() {
                             if is_indicator_btn {
                                 self.show_indicators = !self.show_indicators;
+                            } else if is_pencil_btn {
+                                self.show_drawings = !self.show_drawings;
                             } else {
                                 self.active_tool = i;
                             }
                         }
 
-                        // Tooltip
                         if let Some(tip) = TOOLTIPS.get(i) {
                             if !tip.is_empty() {
                                 btn.clone().on_hover_ui(|ui| {
@@ -122,15 +141,22 @@ impl ChartToolbar {
                             }
                         }
 
-                        // Insert indicator bar after CROSSHAIR when expanded
+                        // Inline drawings bar — replaces the rest of the toolbar
+                        // when expanded.
+                        if is_pencil_btn && self.show_drawings {
+                            draw_drawings_inline(ui, &mut self.active_drawing);
+                        }
+
                         if i == INDICATOR_INSERT_AFTER && self.show_indicators {
-                            let (_toggled, open_modal) = self.indicator_bar.show_inline(ui);
-                            if open_modal {
-                                self.indicator_modal.open = true;
+                            if let Some(ev) = self.indicator_bar.show_inline(ui, manager) {
+                                bar_event = Some(ev);
                             }
                         }
 
-                        if SEPARATORS.contains(&i) && !(i == INDICATOR_INSERT_AFTER && self.show_indicators) {
+                        if SEPARATORS.contains(&i)
+                            && !(i == INDICATOR_INSERT_AFTER && self.show_indicators)
+                            && !(i == PENCIL_TOOL_INDEX && self.show_drawings)
+                        {
                             ui.add_space(2.0);
                             let (rect, _) = ui.allocate_exact_size(
                                 Vec2::new(1.0, 18.0),
@@ -143,7 +169,56 @@ impl ChartToolbar {
                 });
             });
 
-        // Render the indicator modal (floating window)
-        self.indicator_modal.show(ui.ctx());
+        self.indicator_modal.show(ui.ctx(), manager);
+
+        if let Some(IndicatorBarEvent::OpenModal) = &bar_event {
+            self.indicator_modal.open = true;
+        }
+
+        bar_event
+    }
+}
+
+/// Render the drawings bar inline next to the pencil button. Mirrors the shape
+/// of `IndicatorBar::show_inline` — a separator, one icon button per tool
+/// (with the tool's name as a tooltip), and the active tool highlighted.
+fn draw_drawings_inline(ui: &mut egui::Ui, active_drawing: &mut Option<&'static str>) {
+    ui.add_space(4.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, BORDER);
+    ui.add_space(4.0);
+
+    for def in drawings::all() {
+        let is_active = *active_drawing == Some(def.id);
+        let fill = if is_active { ICON_ACTIVE_BG } else { Color32::TRANSPARENT };
+        let color = if is_active { ICON_HOVER } else { ICON_COLOR };
+
+        let btn = ui.add(
+            egui::Button::new(RichText::new(def.icon).size(15.0).color(color))
+                .fill(fill)
+                .corner_radius(CornerRadius::same(4))
+                .min_size(Vec2::new(28.0, 28.0)),
+        );
+
+        if btn.hovered() && !is_active {
+            let rect = btn.rect;
+            ui.painter().rect_filled(rect, 4.0, HOVER_BG);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                def.icon,
+                egui::FontId::proportional(15.0),
+                ICON_HOVER,
+            );
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        if btn.clicked() {
+            *active_drawing = if is_active { None } else { Some(def.id) };
+        }
+
+        btn.clone().on_hover_ui(|ui| {
+            ui.label(RichText::new(def.name).size(11.0));
+        });
     }
 }

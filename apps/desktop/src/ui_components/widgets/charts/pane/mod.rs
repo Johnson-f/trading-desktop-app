@@ -1,4 +1,3 @@
-mod logic;
-pub mod volume;
+mod stack;
 
-pub use logic::SubPane;
+pub use stack::SubPaneStack;

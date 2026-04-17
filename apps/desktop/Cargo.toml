@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 zaned-core = { path = "../../crates/core" }
 zaned-api-client = { path = "../../crates/api-client" }
+zaned-chart-core = { path = "../../crates/chart-core" }
 eframe = "0.34.1"
 egui = "0.34.1"
 egui-phosphor = "0.12"

@@ -2,6 +2,6 @@
 resolver = "2"
 members = [
     "apps/desktop",
-    "apps/server",
+    "apps/server", "apps/symbol-service",
     "crates/*",
 ]

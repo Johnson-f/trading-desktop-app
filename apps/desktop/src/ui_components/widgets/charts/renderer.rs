@@ -2,7 +2,7 @@ use std::sync::Arc;
 use egui::mutex::Mutex;
 use egui_wgpu::CallbackTrait;
 use super::camera::Camera;
-use super::candle::{CandleData, CandleInstance};
+use super::candle::{candle_instance_desc, create_candle_buffer, CandleData};
 
 pub struct ChartResources {
     pub pipeline: wgpu::RenderPipeline,
@@ -61,7 +61,7 @@ impl ChartResources {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[CandleInstance::desc()],
+                buffers: &[candle_instance_desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -84,7 +84,7 @@ impl ChartResources {
             cache: None,
         });
 
-        let candle_buffer = data.create_buffer(device);
+        let candle_buffer = create_candle_buffer(data, device);
 
         Self {
             pipeline,
