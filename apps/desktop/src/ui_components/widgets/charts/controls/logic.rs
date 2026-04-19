@@ -1,8 +1,9 @@
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
-use super::indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal};
+use super::super::candle::Timeframe;
 use super::super::drawings;
 use super::super::indicators::IndicatorManager;
+use super::indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal};
 
 const BG: Color32 = Color32::from_rgb(18, 18, 22);
 const BORDER: Color32 = Color32::from_rgb(30, 30, 33);
@@ -33,13 +34,28 @@ const PENCIL_TOOL_INDEX: usize = 1;
 const INDICATOR_INSERT_AFTER: usize = 9;
 const SEPARATORS: &[usize] = &[9];
 const TOOLTIPS: &[&str] = &[
-    "Indicator", "Drawings", "", "Line Style", "", "",
-    "", "", "", "", "", "", "", "",
+    "Indicator",
+    "Drawings",
+    "",
+    "Line Style",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
 ];
 
 pub struct ChartToolbar {
     pub active_tool: usize,
     pub active_drawing: Option<&'static str>,
+    /// User-selected base timeframe. Read by `ChartWidget` each frame; a
+    /// change triggers re-aggregation + camera reset.
+    pub timeframe: Timeframe,
     pub indicator_bar: IndicatorBar,
     pub indicator_modal: IndicatorModal,
     pub show_indicators: bool,
@@ -51,6 +67,7 @@ impl Default for ChartToolbar {
         Self {
             active_tool: 0,
             active_drawing: None,
+            timeframe: Timeframe::Daily,
             indicator_bar: IndicatorBar::default(),
             indicator_modal: IndicatorModal::default(),
             show_indicators: false,
@@ -78,6 +95,16 @@ impl ChartToolbar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
 
+                    // Timeframe selector (leftmost). Clicking the short-label
+                    // pill opens a popup with the full list.
+                    draw_timeframe_selector(ui, &mut self.timeframe);
+
+                    ui.add_space(2.0);
+                    let (sep_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
+                    ui.painter().rect_filled(sep_rect, 0.0, BORDER);
+                    ui.add_space(2.0);
+
                     for (i, icon) in TOOLBAR_ICONS.iter().enumerate() {
                         if self.show_indicators && i > INDICATOR_INSERT_AFTER {
                             continue;
@@ -98,16 +125,18 @@ impl ChartToolbar {
                             self.active_tool == i
                         };
 
-                        let fill = if is_active { ICON_ACTIVE_BG } else { Color32::TRANSPARENT };
+                        let fill = if is_active {
+                            ICON_ACTIVE_BG
+                        } else {
+                            Color32::TRANSPARENT
+                        };
                         let color = if is_active { ICON_HOVER } else { ICON_COLOR };
 
                         let btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(*icon).size(15.0).color(color),
-                            )
-                            .fill(fill)
-                            .corner_radius(CornerRadius::same(4))
-                            .min_size(Vec2::new(28.0, 28.0)),
+                            egui::Button::new(RichText::new(*icon).size(15.0).color(color))
+                                .fill(fill)
+                                .corner_radius(CornerRadius::same(4))
+                                .min_size(Vec2::new(28.0, 28.0)),
                         );
 
                         if btn.hovered() && !is_active {
@@ -158,10 +187,8 @@ impl ChartToolbar {
                             && !(i == PENCIL_TOOL_INDEX && self.show_drawings)
                         {
                             ui.add_space(2.0);
-                            let (rect, _) = ui.allocate_exact_size(
-                                Vec2::new(1.0, 18.0),
-                                egui::Sense::hover(),
-                            );
+                            let (rect, _) =
+                                ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
                             ui.painter().rect_filled(rect, 0.0, BORDER);
                             ui.add_space(2.0);
                         }
@@ -179,6 +206,37 @@ impl ChartToolbar {
     }
 }
 
+/// Render the timeframe selector — a compact pill showing the current
+/// timeframe's short label (e.g. "1D"). Click opens a popup with all
+/// available timeframes; selecting one updates `*timeframe`.
+fn draw_timeframe_selector(ui: &mut egui::Ui, timeframe: &mut Timeframe) {
+    let btn = ui.add(
+        egui::Button::new(
+            RichText::new(timeframe.short_label())
+                .size(12.0)
+                .color(ICON_HOVER),
+        )
+        .fill(ICON_ACTIVE_BG)
+        .corner_radius(CornerRadius::same(4))
+        .min_size(Vec2::new(36.0, 24.0)),
+    );
+    if btn.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    egui::Popup::from_toggle_button_response(&btn)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+        .show(|ui| {
+            ui.set_min_width(120.0);
+            for tf in Timeframe::ALL {
+                let selected = *timeframe == *tf;
+                let label = format!("{}  {}", tf.short_label(), tf.long_label());
+                if ui.selectable_label(selected, label).clicked() {
+                    *timeframe = *tf;
+                }
+            }
+        });
+}
+
 /// Render the drawings bar inline next to the pencil button. Mirrors the shape
 /// of `IndicatorBar::show_inline` — a separator, one icon button per tool
 /// (with the tool's name as a tooltip), and the active tool highlighted.
@@ -190,7 +248,11 @@ fn draw_drawings_inline(ui: &mut egui::Ui, active_drawing: &mut Option<&'static 
 
     for def in drawings::all() {
         let is_active = *active_drawing == Some(def.id);
-        let fill = if is_active { ICON_ACTIVE_BG } else { Color32::TRANSPARENT };
+        let fill = if is_active {
+            ICON_ACTIVE_BG
+        } else {
+            Color32::TRANSPARENT
+        };
         let color = if is_active { ICON_HOVER } else { ICON_COLOR };
 
         let btn = ui.add(

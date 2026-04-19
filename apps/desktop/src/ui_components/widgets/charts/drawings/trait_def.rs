@@ -1,22 +1,35 @@
 use egui::{Painter, Rect};
 
 use super::super::camera::Camera;
+use super::style::DrawingStyle;
 
 /// A point anchored in chart world coordinates — candle index (x) and price (y).
 /// Drawings store points in world space so they stay attached to the underlying
 /// data as the user pans/zooms.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WorldPoint {
     pub index: f32,
     pub price: f32,
 }
 
 /// A finalized drawing. Emitted once the user finishes placing points.
-#[derive(Clone, Debug)]
+///
+/// Derives `Serialize` but not `Deserialize` because `def_id: &'static str`
+/// cannot be materialized by deserialization. When persistence lands, a
+/// separate DTO with `def_id: String` will round-trip via a registry lookup.
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct CommittedDrawing {
     pub id: u64,
     pub def_id: &'static str,
     pub points: Vec<WorldPoint>,
+    /// ISO date (YYYY-MM-DD) of the raw daily candle each point was placed on.
+    /// Used to remap indices when the user switches timeframes.
+    #[serde(default)]
+    pub point_dates: Vec<String>,
+    #[serde(default)]
+    pub style: DrawingStyle,
+    #[serde(default)]
+    pub locked: bool,
 }
 
 /// The in-progress drawing the active tool is building up before commit.
@@ -47,10 +60,10 @@ pub trait DrawingTool: Send + Sync {
         draft: &mut Option<DrawingDraft>,
     ) -> InputResult;
 
-    /// Render a committed drawing. World-space `points` are converted by the
-    /// tool using the camera. `full_rect` spans the main chart + sub-panes
-    /// (equals `chart_rect` when no sub-panes are visible); tools whose shape
-    /// should span all panes (e.g. vertical lines) paint against it.
+    /// Render a committed drawing using its stored style. `full_rect` spans
+    /// the main chart + sub-panes; tools whose shape should span all panes
+    /// (vertical line) paint against it, others narrow their painter clip back
+    /// to chart_rect.
     fn render(
         &self,
         painter: &Painter,
@@ -58,6 +71,7 @@ pub trait DrawingTool: Send + Sync {
         full_rect: Rect,
         camera: &Camera,
         points: &[WorldPoint],
+        style: &DrawingStyle,
     );
 
     /// Render an in-progress preview. Defaults to the same look as a committed
@@ -70,7 +84,58 @@ pub trait DrawingTool: Send + Sync {
         camera: &Camera,
         points: &[WorldPoint],
     ) {
-        self.render(painter, chart_rect, full_rect, camera, points);
+        self.render(
+            painter,
+            chart_rect,
+            full_rect,
+            camera,
+            points,
+            &DrawingStyle::default(),
+        );
+    }
+
+    /// Return true if `px` (screen space) is within `tolerance_px` of the
+    /// drawing's rendered shape. Default: false (tool doesn't participate in
+    /// selection). Tasks 5–10 override this per tool.
+    fn hit_test(
+        &self,
+        _chart_rect: Rect,
+        _full_rect: Rect,
+        _camera: &Camera,
+        _points: &[WorldPoint],
+        _px: egui::Pos2,
+        _tolerance_px: f32,
+    ) -> bool {
+        false
+    }
+
+    /// Screen-space positions of endpoint handles, index-aligned with `points`.
+    /// Default: empty (no handles rendered).
+    fn handles(
+        &self,
+        _chart_rect: Rect,
+        _full_rect: Rect,
+        _camera: &Camera,
+        _points: &[WorldPoint],
+    ) -> Vec<egui::Pos2> {
+        Vec::new()
+    }
+
+    /// Screen-space bounding box used to anchor the floating toolbar. Default:
+    /// chart_rect (safe fallback).
+    fn bounds(
+        &self,
+        chart_rect: Rect,
+        _full_rect: Rect,
+        _camera: &Camera,
+        _points: &[WorldPoint],
+    ) -> Rect {
+        chart_rect
+    }
+
+    /// Which extend toggles the settings modal should show for this tool.
+    fn extend_capabilities(&self) -> ExtendCapabilities {
+        ExtendCapabilities::default()
     }
 }
 
@@ -153,4 +218,18 @@ pub fn ray_to_rect_edge(a: egui::Pos2, b: egui::Pos2, rect: Rect) -> (egui::Pos2
         return (a, b);
     }
     (a, egui::Pos2::new(a.x + t_far * dx, a.y + t_far * dy))
+}
+
+/// Click tolerance for hit-testing drawings, in screen pixels.
+pub const HIT_TOLERANCE_PX: f32 = 6.0;
+
+/// Radius of the blue selection handles rendered at each control point.
+pub const HANDLE_RADIUS_PX: f32 = 5.0;
+
+/// Per-tool declaration of which "extend" toggles apply in the settings
+/// modal. Default: neither. Tools override in their trait impl.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct ExtendCapabilities {
+    pub left: bool,
+    pub right: bool,
 }

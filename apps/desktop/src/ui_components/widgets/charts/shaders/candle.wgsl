@@ -54,23 +54,31 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let body_bottom = min(in.open, in.close);
 
     if is_up {
-        out.color = vec3<f32>(0.306, 0.804, 0.769);
+        out.color = vec3<f32>(0.149, 0.788, 0.627);
     } else {
-        out.color = vec3<f32>(1.0, 0.420, 0.420);
+        out.color = vec3<f32>(1.0, 0.624, 0.302);
     }
 
     let center_x = in.candle_index;
     let vi = in.vertex_index;
     var pos: vec2<f32>;
 
-    // Wick width: 1 pixel in data space (thin regardless of zoom)
-    let wick_half = 1.0 / camera.x_scale;
+    // Wick: 1 pixel wide (0.5 px half-extent on each side).
+    let wick_half = 0.5 / camera.x_scale;
+
+    // Doji floor: body renders at least 1 px tall so open==close bars don't
+    // vanish.
+    let min_half_height = 0.5 / camera.y_scale;
+    let center_y = (body_top + body_bottom) * 0.5;
+    let half_h = max((body_top - body_bottom) * 0.5, min_half_height);
+    let draw_bottom = center_y - half_h;
+    let draw_top = center_y + half_h;
 
     if vi < 6u {
-        // Body quad
+        // Body quad — 85% of the candle slot wide.
         let corner = QUAD[vi];
-        let x_data = center_x + corner.x * 0.35;
-        let y_data = body_bottom + corner.y * (body_top - body_bottom);
+        let x_data = center_x + corner.x * 0.425;
+        let y_data = draw_bottom + corner.y * (draw_top - draw_bottom);
         pos = to_clip(x_data, y_data);
     } else if vi < 12u {
         // Upper wick quad (body_top → high)

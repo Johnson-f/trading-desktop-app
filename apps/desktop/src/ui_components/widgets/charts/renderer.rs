@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use super::camera::Camera;
+use super::candle::{CandleData, candle_instance_desc, create_candle_buffer};
 use egui::mutex::Mutex;
 use egui_wgpu::CallbackTrait;
-use super::camera::Camera;
-use super::candle::{candle_instance_desc, create_candle_buffer, CandleData};
+use std::sync::Arc;
 
 pub struct ChartResources {
     pub pipeline: wgpu::RenderPipeline,
@@ -10,13 +10,17 @@ pub struct ChartResources {
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
     pub num_candles: u32,
+    /// Tracks which `CandleData` produced the current candle_buffer. When
+    /// `ChartCallback` hands over a different Arc (bucket size changed), the
+    /// buffer is rebuilt in `prepare`.
+    pub data: Arc<CandleData>,
 }
 
 impl ChartResources {
     pub fn new(
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
-        data: &CandleData,
+        data: Arc<CandleData>,
         camera: &Camera,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -84,15 +88,25 @@ impl ChartResources {
             cache: None,
         });
 
-        let candle_buffer = create_candle_buffer(data, device);
+        let candle_buffer = create_candle_buffer(&data, device);
+        let num_candles = data.len() as u32;
 
         Self {
             pipeline,
             candle_buffer,
             camera_buffer,
             camera_bind_group,
-            num_candles: data.len() as u32,
+            num_candles,
+            data,
         }
+    }
+
+    /// Replace the candle buffer when the active `CandleData` changes (e.g.
+    /// bucket size flipped). Keeps pipeline/camera resources intact.
+    pub fn rebuild_candle_buffer(&mut self, device: &wgpu::Device, data: Arc<CandleData>) {
+        self.candle_buffer = create_candle_buffer(&data, device);
+        self.num_candles = data.len() as u32;
+        self.data = data;
     }
 }
 
@@ -117,15 +131,21 @@ impl CallbackTrait for ChartCallback {
         if !*initialized {
             let camera = self.camera.lock();
             let format = self.target_format;
-            let chart_resources = ChartResources::new(device, format, &self.data, &camera);
+            let chart_resources =
+                ChartResources::new(device, format, self.data.clone(), &camera);
             resources.insert(chart_resources);
             *initialized = true;
-        } else {
-            if let Some(res) = resources.get::<ChartResources>() {
-                let camera = self.camera.lock();
-                let uniform = camera.to_uniform();
-                queue.write_buffer(&res.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        } else if let Some(res) = resources.get_mut::<ChartResources>() {
+            // If the active CandleData Arc changed (e.g. bucket_size flipped),
+            // rebuild the vertex buffer. Pointer-equality is enough because
+            // ChartWidget caches the bucketed variant and only swaps when the
+            // bucket size actually changes.
+            if !Arc::ptr_eq(&res.data, &self.data) {
+                res.rebuild_candle_buffer(device, self.data.clone());
             }
+            let camera = self.camera.lock();
+            let uniform = camera.to_uniform();
+            queue.write_buffer(&res.camera_buffer, 0, bytemuck::bytes_of(&uniform));
         }
 
         Vec::new()

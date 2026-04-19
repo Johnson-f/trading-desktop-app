@@ -41,11 +41,16 @@ impl SubPaneStack {
         }
         let total_h = total_rect.height();
         let sub_area_h = (total_h * self.total_ratio).clamp(0.0, total_h * MAX_TOTAL_SUB_RATIO);
-        let main_h = (total_h - sub_area_h - DIVIDER_HEIGHT * n_panes as f32)
-            .max(total_h * MIN_MAIN_RATIO);
+        let main_h =
+            (total_h - sub_area_h - DIVIDER_HEIGHT * n_panes as f32).max(total_h * MIN_MAIN_RATIO);
         let actual_sub_h = (total_h - main_h - DIVIDER_HEIGHT * n_panes as f32).max(0.0);
 
-        let sum: f32 = self.weights.iter().take(n_panes).sum::<f32>().max(f32::EPSILON);
+        let sum: f32 = self
+            .weights
+            .iter()
+            .take(n_panes)
+            .sum::<f32>()
+            .max(f32::EPSILON);
 
         let main_rect = Rect::from_min_max(
             total_rect.min,
@@ -131,7 +136,10 @@ impl SubPaneStack {
         let color = if hot { DIVIDER_HOVER } else { DIVIDER_COLOR };
         let center_y = divider_rect.center().y;
         ui.painter().line_segment(
-            [Pos2::new(divider_rect.left(), center_y), Pos2::new(divider_rect.right(), center_y)],
+            [
+                Pos2::new(divider_rect.left(), center_y),
+                Pos2::new(divider_rect.right(), center_y),
+            ],
             Stroke::new(1.0, color),
         );
     }

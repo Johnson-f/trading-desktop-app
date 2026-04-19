@@ -78,7 +78,11 @@ impl eframe::App for MyApp {
             .default_size(220.0)
             .size_range(220.0..=400.0)
             .resizable(true)
-            .frame(egui::Frame::new().fill(sidebar_bg).stroke(egui::Stroke::NONE))
+            .frame(
+                egui::Frame::new()
+                    .fill(sidebar_bg)
+                    .stroke(egui::Stroke::NONE),
+            )
             .show_inside(ui, |ui| {
                 self.main_sidebar.show(ui);
             });
@@ -87,7 +91,11 @@ impl eframe::App for MyApp {
         egui::Panel::right("mini_sidebar")
             .exact_size(58.0)
             .resizable(false)
-            .frame(egui::Frame::new().fill(sidebar_bg).stroke(egui::Stroke::NONE))
+            .frame(
+                egui::Frame::new()
+                    .fill(sidebar_bg)
+                    .stroke(egui::Stroke::NONE),
+            )
             .show_inside(ui, |ui| {
                 self.mini_sidebar.show(ui);
             });

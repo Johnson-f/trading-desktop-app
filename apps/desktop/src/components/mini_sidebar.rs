@@ -43,20 +43,23 @@ impl Default for MiniSidebar {
 impl MiniSidebar {
     fn paint_divider(ui: &mut egui::Ui) {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(14.0, 1.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(30, 30, 33));
+        ui.painter()
+            .rect_filled(rect, 0.0, Color32::from_rgb(30, 30, 33));
     }
 
-    fn paint_icon(
-        &mut self,
-        ui: &mut egui::Ui,
-        icon: &str,
-        group_index: usize,
-        icon_index: usize,
-    ) {
+    fn paint_icon(&mut self, ui: &mut egui::Ui, icon: &str, group_index: usize, icon_index: usize) {
         let is_active = self.active_group == group_index && self.active_icon == icon_index;
 
-        let icon_color = if is_active { ICON_ACTIVE } else { ICON_INACTIVE };
-        let bg_fill = if is_active { ACCENT_BG } else { Color32::TRANSPARENT };
+        let icon_color = if is_active {
+            ICON_ACTIVE
+        } else {
+            ICON_INACTIVE
+        };
+        let bg_fill = if is_active {
+            ACCENT_BG
+        } else {
+            Color32::TRANSPARENT
+        };
 
         let btn = ui.add(
             egui::Button::new(RichText::new(icon).size(16.0).color(icon_color))

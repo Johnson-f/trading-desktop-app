@@ -160,9 +160,18 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
             last_label_x = x;
 
             let month_name = match mm {
-                "01" => "Jan", "02" => "Feb", "03" => "Mar", "04" => "Apr",
-                "05" => "May", "06" => "Jun", "07" => "Jul", "08" => "Aug",
-                "09" => "Sep", "10" => "Oct", "11" => "Nov", "12" => "Dec",
+                "01" => "Jan",
+                "02" => "Feb",
+                "03" => "Mar",
+                "04" => "Apr",
+                "05" => "May",
+                "06" => "Jun",
+                "07" => "Jul",
+                "08" => "Aug",
+                "09" => "Sep",
+                "10" => "Oct",
+                "11" => "Nov",
+                "12" => "Dec",
                 _ => mm,
             };
 
@@ -184,7 +193,11 @@ pub fn handle_price_axis_drag(ui: &egui::Ui, chart_rect: Rect, camera: &mut Came
         Pos2::new(chart_rect.right(), chart_rect.bottom()),
     );
 
-    let response = ui.interact(axis_rect, ui.id().with("price_axis_drag"), egui::Sense::click_and_drag());
+    let response = ui.interact(
+        axis_rect,
+        ui.id().with("price_axis_drag"),
+        egui::Sense::click_and_drag(),
+    );
 
     if response.hovered() || response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
@@ -221,7 +234,11 @@ pub fn paint_auto_button(ui: &egui::Ui, chart_rect: Rect, camera: &mut Camera) {
         btn_size,
     );
 
-    let response = ui.interact(btn_rect, ui.id().with("auto_scale_btn"), egui::Sense::click());
+    let response = ui.interact(
+        btn_rect,
+        ui.id().with("auto_scale_btn"),
+        egui::Sense::click(),
+    );
     let painter = ui.painter_at(chart_rect);
 
     let is_auto = camera.auto_scale_y;

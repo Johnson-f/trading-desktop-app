@@ -1,8 +1,8 @@
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke};
 
 use zaned_chart_core::{
-    compute_rsi, CandleData, ComputedSeries, InputSpec, LegendEntry, ParamField, ParamKind,
-    ParamSchema, ParamValues, Rgba,
+    CandleData, ComputedSeries, InputSpec, LegendEntry, ParamField, ParamKind, ParamSchema,
+    ParamValues, Rgba, compute_rsi,
 };
 
 use super::super::super::util::egui_color;
@@ -19,12 +19,18 @@ pub static SCHEMA: ParamSchema = ParamSchema {
         ParamField {
             key: "period",
             label: "Period",
-            kind: ParamKind::Int { default: 14, min: 2, max: 100 },
+            kind: ParamKind::Int {
+                default: 14,
+                min: 2,
+                max: 100,
+            },
         },
         ParamField {
             key: "color",
             label: "Color",
-            kind: ParamKind::Color { default: Rgba::from_rgb(186, 127, 246) },
+            kind: ParamKind::Color {
+                default: Rgba::from_rgb(186, 127, 246),
+            },
         },
     ],
 };
@@ -36,11 +42,15 @@ pub fn factory() -> Box<dyn Indicator> {
 }
 
 impl Indicator for Rsi {
-    fn id(&self) -> &'static str { ID }
+    fn id(&self) -> &'static str {
+        ID
+    }
     fn display_name(&self, params: &ParamValues) -> String {
         format!("RSI({})", params.int("period"))
     }
-    fn target(&self) -> RenderTarget { RenderTarget::SubPane }
+    fn target(&self) -> RenderTarget {
+        RenderTarget::SubPane
+    }
 
     fn inputs(&self, _params: &ParamValues) -> Vec<InputSpec> {
         vec![InputSpec::Closes]
@@ -71,12 +81,17 @@ impl Indicator for Rsi {
         for v in [30.0f32, 70.0f32] {
             let y = y_of(v);
             painter.line_segment(
-                [Pos2::new(pane_rect.left(), y), Pos2::new(pane_rect.right(), y)],
+                [
+                    Pos2::new(pane_rect.left(), y),
+                    Pos2::new(pane_rect.right(), y),
+                ],
                 Stroke::new(0.5, GUIDE_COLOR),
             );
         }
 
-        let Some(series) = computed.series.get("rsi") else { return };
+        let Some(series) = computed.series.get("rsi") else {
+            return;
+        };
         let color = egui_color(params.color("color"));
         let mut current: Vec<Pos2> = Vec::with_capacity(series.len());
         for (i, v) in series.iter().enumerate() {
@@ -85,7 +100,10 @@ impl Indicator for Rsi {
                     let x = x_mapper(i as f32);
                     if x < pane_rect.left() - 50.0 || x > pane_rect.right() + 50.0 {
                         if !current.is_empty() {
-                            painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(1.5, color)));
+                            painter.add(Shape::line(
+                                std::mem::take(&mut current),
+                                Stroke::new(1.5, color),
+                            ));
                         }
                         continue;
                     }
@@ -93,7 +111,10 @@ impl Indicator for Rsi {
                 }
                 None => {
                     if !current.is_empty() {
-                        painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(1.5, color)));
+                        painter.add(Shape::line(
+                            std::mem::take(&mut current),
+                            Stroke::new(1.5, color),
+                        ));
                     }
                 }
             }
@@ -110,8 +131,12 @@ impl Indicator for Rsi {
         params: &ParamValues,
         cursor_idx: Option<usize>,
     ) -> Vec<LegendEntry> {
-        let Some(series) = computed.series.get("rsi") else { return Vec::new() };
-        if series.is_empty() { return Vec::new(); }
+        let Some(series) = computed.series.get("rsi") else {
+            return Vec::new();
+        };
+        if series.is_empty() {
+            return Vec::new();
+        }
         let idx = cursor_idx.unwrap_or(series.len() - 1).min(series.len() - 1);
         match series.get(idx).and_then(|v| *v) {
             Some(v) => vec![LegendEntry {

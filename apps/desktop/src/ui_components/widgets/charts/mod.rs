@@ -3,20 +3,25 @@ mod candle;
 mod controls;
 mod crosshair;
 mod drawings;
+mod gaps;
 mod grid;
 mod indicators;
 mod interaction;
 mod pane;
+mod range_markers;
 mod renderer;
 mod util;
 
-use std::sync::Arc;
 use egui::mutex::Mutex;
+use std::sync::Arc;
 
-pub use candle::{CandleData, JsonCandle};
 use camera::Camera;
-use controls::{ChartToolbar, IndicatorBarEvent, SettingsModal};
-use drawings::DrawingsManager;
+pub use candle::{CandleData, JsonCandle, Timeframe};
+use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
+use drawings::{
+    DrawingsManager, SelectionInput, ToolbarEvent, paint_handles, selection_step, show_toolbar,
+    toolbar_anchor_rect,
+};
 use indicators::{self as ind, IndicatorManager, ParamValues};
 use interaction::InteractionState;
 use pane::SubPaneStack;
@@ -30,7 +35,15 @@ enum LegendAction {
 }
 
 pub struct ChartWidget {
+    /// Source of truth — the raw (daily) candles as loaded. Never mutated.
+    raw_data: Arc<CandleData>,
+    /// Raw candles aggregated to the user-selected timeframe. The bars the
+    /// renderer/indicators/grid/crosshair see are always equal to this —
+    /// there is no additional count-bucketing on top. Coarser views come
+    /// from the user picking a coarser timeframe, not from zoom.
     data: Arc<CandleData>,
+    /// Currently selected timeframe (user-driven).
+    timeframe: Timeframe,
     camera: Arc<Mutex<Camera>>,
     interaction: InteractionState,
     initialized: Arc<Mutex<bool>>,
@@ -39,6 +52,7 @@ pub struct ChartWidget {
     manager: IndicatorManager,
     settings_modal: SettingsModal,
     drawings: DrawingsManager,
+    drawing_settings_modal: DrawingSettingsModal,
 }
 
 impl ChartWidget {
@@ -53,6 +67,8 @@ impl ChartWidget {
         }
 
         Self {
+            raw_data: data.clone(),
+            timeframe: Timeframe::Daily,
             data,
             camera: Arc::new(Mutex::new(camera)),
             interaction: InteractionState::default(),
@@ -62,7 +78,31 @@ impl ChartWidget {
             manager,
             settings_modal: SettingsModal::default(),
             drawings: DrawingsManager::default(),
+            drawing_settings_modal: DrawingSettingsModal::default(),
         }
+    }
+
+    /// Switch the base timeframe (Daily / Weekly / Monthly). Rebuilds the
+    /// active data from `raw_data` and re-fits the camera so the newly-
+    /// aggregated range shows cleanly.
+    fn set_timeframe(&mut self, timeframe: Timeframe) {
+        if timeframe == self.timeframe {
+            return;
+        }
+        self.timeframe = timeframe;
+        self.data = Arc::new(self.raw_data.aggregated(timeframe));
+        // Stale VMA / EMA / RSI caches would be wrong length for the new
+        // series — force a recompute.
+        self.manager.invalidate_cache();
+        // Re-anchor committed drawings to the new (aggregated) index space
+        // using each point's stored date.
+        self.drawings.remap_to_data(&self.data);
+        // Reset zoom/pan to fit the aggregated series — otherwise the prior
+        // x_offset/x_scale (sized for daily candles) lands mid-data at a
+        // wildly-wrong position after aggregation.
+        let mut camera = self.camera.lock();
+        camera.x_scale = 6.0;
+        camera.fit_to_data(&self.data);
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
@@ -71,23 +111,26 @@ impl ChartWidget {
         let (total_rect, chart_rect, pane_slots) = self.layout_rects(ui);
         self.update_camera_viewport(chart_rect);
 
-        let modal_open = self.toolbar.indicator_modal.open || self.settings_modal.open;
-        let drawing_active = self.toolbar.active_drawing.is_some();
+        let modal_open = self.toolbar.indicator_modal.open
+            || self.settings_modal.open
+            || self.drawing_settings_modal.open;
+        let drawing_tool_armed = self.toolbar.active_drawing.is_some();
 
-        // Pan/zoom runs even while a drawing tool is armed: a drag on the chart
-        // pans the view, a pure click places the next drawing point. The two
-        // don't collide because the drawing tool only reacts to clicks and the
-        // chart interaction only reacts to drags and scrolls.
-        if !modal_open {
+        let drawing_drag_active = !matches!(self.drawings.drag, drawings::SelectionDrag::None);
+
+        if !modal_open && !drawing_drag_active {
             self.handle_chart_interaction(ui, total_rect, chart_rect);
         }
 
-        if !modal_open && drawing_active {
+        let full_rect = full_chart_rect(chart_rect, &pane_slots);
+
+        if !modal_open && drawing_tool_armed {
             self.handle_drawing_input(ui, chart_rect);
-        } else if !drawing_active {
-            // Tool just got deactivated (or was never on) — drop any in-progress
-            // preview so a future activation starts from a clean slate.
+        } else if !drawing_tool_armed {
             self.drawings.cancel_draft();
+            if !modal_open {
+                self.handle_drawing_selection(ui, chart_rect, full_rect);
+            }
         }
 
         self.manager.ensure_computed(&self.data);
@@ -95,16 +138,28 @@ impl ChartWidget {
 
         self.paint_wgpu_candles(ui, chart_rect);
         self.paint_grid(ui, chart_rect, modal_open);
+        {
+            let camera = self.camera.lock();
+            gaps::paint(ui, chart_rect, &camera, &self.data);
+            range_markers::paint(ui, chart_rect, &camera, &self.data);
+        }
 
         let mut pending = self.paint_main_overlays(ui, chart_rect, cursor_idx);
         pending.extend(self.paint_sub_panes(
-            ui, total_rect, chart_rect, &pane_slots, cursor_idx, modal_open,
+            ui,
+            total_rect,
+            chart_rect,
+            &pane_slots,
+            cursor_idx,
+            modal_open,
         ));
         self.apply_legend_actions(pending);
 
         self.settings_modal.show(ui.ctx(), &mut self.manager);
-        let full_rect = full_chart_rect(chart_rect, &pane_slots);
         self.paint_drawings(ui, chart_rect, full_rect);
+        self.paint_drawing_selection(ui, chart_rect, full_rect);
+        self.drawing_settings_modal
+            .show(ui.ctx(), &mut self.drawings, &self.data);
         self.paint_crosshair(ui, chart_rect, full_rect);
     }
 
@@ -113,6 +168,10 @@ impl ChartWidget {
             if let IndicatorBarEvent::Remove(id) = ev {
                 self.manager.remove(id);
             }
+        }
+        // Pick up user-driven timeframe changes from the toolbar.
+        if self.toolbar.timeframe != self.timeframe {
+            self.set_timeframe(self.toolbar.timeframe);
         }
     }
 
@@ -165,13 +224,18 @@ impl ChartWidget {
             return None;
         }
         let idx = idx as usize;
-        if idx >= self.data.len() { None } else { Some(idx) }
+        if idx >= self.data.len() {
+            None
+        } else {
+            Some(idx)
+        }
     }
 
     fn paint_wgpu_candles(&self, ui: &egui::Ui, chart_rect: egui::Rect) {
-        let target_format = egui_wgpu::preferred_framebuffer_format(
-            &[wgpu::TextureFormat::Bgra8Unorm, wgpu::TextureFormat::Rgba8Unorm],
-        )
+        let target_format = egui_wgpu::preferred_framebuffer_format(&[
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ])
         .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
         let callback = ChartCallback {
             camera: self.camera.clone(),
@@ -179,8 +243,9 @@ impl ChartWidget {
             initialized: self.initialized.clone(),
             target_format,
         };
-        ui.painter()
-            .add(egui_wgpu::Callback::new_paint_callback(chart_rect, callback));
+        ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+            chart_rect, callback,
+        ));
     }
 
     fn paint_grid(&self, ui: &mut egui::Ui, chart_rect: egui::Rect, modal_open: bool) {
@@ -207,42 +272,103 @@ impl ChartWidget {
             let painter = ui.painter_at(chart_rect);
             for (active, computed) in self.manager.main_overlays() {
                 active.indicator().draw_main(
-                    &painter, chart_rect, &camera,
-                    &self.data, computed, &active.params,
+                    &painter,
+                    chart_rect,
+                    &camera,
+                    &self.data,
+                    computed,
+                    &active.params,
                 );
             }
         }
 
-        // Snapshot legend items so the immutable borrow on manager is released
-        // before draw_legend_row takes &mut ui.
-        let items: Vec<LegendItem> = self
-            .manager
-            .main_overlays()
-            .map(|(active, computed)| LegendItem {
+        // OHLC header row, painted above the indicator legend.
+        paint_ohlc_row(
+            ui,
+            chart_rect,
+            &self.data,
+            cursor_idx,
+            egui::Pos2::new(chart_rect.left() + 8.0, chart_rect.top() + 8.0),
+        );
+
+        // Snapshot legend items grouped by def_id. Release the manager borrow
+        // before `draw_legend_row` takes &mut ui.
+        let mut groups: Vec<FamilyGroup> = Vec::new();
+        for (active, computed) in self.manager.main_overlays() {
+            let entries =
+                active
+                    .indicator()
+                    .legend(&self.data, computed, &active.params, cursor_idx);
+            let member = FamilyMember {
                 instance_id: active.instance_id,
-                name: active.indicator().display_name(&active.params),
-                entries: active.indicator().legend(
-                    &self.data, computed, &active.params, cursor_idx,
-                ),
+                entries,
                 params: active.params.clone(),
-            })
-            .collect();
+            };
+            if let Some(g) = groups.iter_mut().find(|g| g.def_id == active.def_id) {
+                g.members.push(member);
+            } else {
+                let family_name = ind::get(active.def_id)
+                    .map(|d| d.short_name)
+                    .unwrap_or("")
+                    .to_string();
+                groups.push(FamilyGroup {
+                    def_id: active.def_id,
+                    family_name,
+                    members: vec![member],
+                });
+            }
+        }
+
+        // Sort each family's members by the `period` param (ascending) so
+        // `EMA(10)` always renders before `EMA(20)`, regardless of the order
+        // the user added them. Instances without a period param keep their
+        // insertion order (stable sort).
+        for group in &mut groups {
+            group.members.sort_by_key(|m| period_sort_key(&m.params));
+        }
 
         let mut actions = Vec::new();
-        for (i, item) in items.into_iter().enumerate() {
+        for (i, group) in groups.into_iter().enumerate() {
+            // Flatten every member's entries into a single row. Family name
+            // prefix is drawn only when there is more than one member.
+            let display_name = if group.members.len() > 1 {
+                group.family_name.as_str()
+            } else {
+                ""
+            };
+            let combined: Vec<indicators::LegendEntry> = group
+                .members
+                .iter()
+                .flat_map(|m| m.entries.iter().cloned())
+                .collect();
+            let first_id = group.members[0].instance_id;
+            let first_params = group.members[0].params.clone();
+
             let action = draw_legend_row(
                 ui,
                 chart_rect,
                 egui::Pos2::new(
                     chart_rect.left() + 8.0,
-                    chart_rect.top() + 26.0 + (i as f32 * 14.0),
+                    chart_rect.top() + 28.0 + (i as f32 * 14.0),
                 ),
-                &item.name,
-                &item.entries,
-                &format!("main-{}", item.instance_id),
+                display_name,
+                &combined,
+                &format!("main-{}", group.def_id),
             );
-            if action != LegendAction::None {
-                actions.push((item.instance_id, action, item.params));
+            match action {
+                LegendAction::None => {}
+                LegendAction::OpenSettings => {
+                    // Target the first instance — settings modal edits one
+                    // instance at a time.
+                    actions.push((first_id, action, first_params));
+                }
+                LegendAction::Remove => {
+                    // Fan out: emit one Remove per member so the caller's
+                    // per-id apply loop clears the whole family.
+                    for m in &group.members {
+                        actions.push((m.instance_id, LegendAction::Remove, m.params.clone()));
+                    }
+                }
             }
         }
         actions
@@ -263,7 +389,9 @@ impl ChartWidget {
 
         let mut actions = Vec::new();
         for (i, item) in items.into_iter().enumerate() {
-            let Some((_, pane_rect)) = pane_slots.get(i) else { continue };
+            let Some((_, pane_rect)) = pane_slots.get(i) else {
+                continue;
+            };
             let action = draw_legend_row(
                 ui,
                 *pane_rect,
@@ -284,9 +412,7 @@ impl ChartWidget {
         let x_offset = camera.x_offset;
         let x_scale = camera.x_scale;
         let left = chart_rect.left();
-        Box::new(move |idx: f32| -> f32 {
-            left + ((idx as f64 - x_offset) * x_scale) as f32
-        })
+        Box::new(move |idx: f32| -> f32 { left + ((idx as f64 - x_offset) * x_scale) as f32 })
     }
 
     fn draw_sub_pane_indicators(
@@ -300,17 +426,26 @@ impl ChartWidget {
             self.manager.sub_panes().collect();
         let mut items: Vec<LegendItem> = Vec::with_capacity(sub_list.len());
         for (i, (_divider_rect, pane_rect)) in pane_slots.iter().enumerate() {
-            let Some((active, computed)) = sub_list.get(i) else { continue };
+            let Some((active, computed)) = sub_list.get(i) else {
+                continue;
+            };
             let painter = ui.painter_at(*pane_rect);
             active.indicator().draw_pane(
-                &painter, *pane_rect, x_mapper,
-                &self.data, computed, &active.params,
+                &painter,
+                *pane_rect,
+                x_mapper,
+                &self.data,
+                computed,
+                &active.params,
             );
             items.push(LegendItem {
                 instance_id: active.instance_id,
                 name: active.indicator().display_name(&active.params),
                 entries: active.indicator().legend(
-                    &self.data, computed, &active.params, cursor_idx,
+                    &self.data,
+                    computed,
+                    &active.params,
+                    cursor_idx,
                 ),
                 params: active.params.clone(),
             });
@@ -329,7 +464,10 @@ impl ChartWidget {
             if !modal_open {
                 if i == 0 {
                     self.sub_stack.handle_main_divider_drag(
-                        ui, *divider_rect, total_rect, "main_divider",
+                        ui,
+                        *divider_rect,
+                        total_rect,
+                        "main_divider",
                     );
                 } else {
                     self.sub_stack
@@ -353,13 +491,28 @@ impl ChartWidget {
     }
 
     fn handle_drawing_input(&mut self, ui: &egui::Ui, chart_rect: egui::Rect) {
-        let Some(def_id) = self.toolbar.active_drawing else { return };
-        let Some(tool) = self.drawings.tool_for(def_id) else { return };
+        let Some(def_id) = self.toolbar.active_drawing else {
+            return;
+        };
+        let Some(tool) = self.drawings.tool_for(def_id) else {
+            return;
+        };
         let camera = self.camera.lock();
         let result = tool.handle_input(ui, chart_rect, &camera, &mut self.drawings.draft);
         drop(camera);
         if let drawings::InputResult::Commit(points) = result {
-            self.drawings.commit(tool.id(), points);
+            let point_dates: Vec<String> = points
+                .iter()
+                .map(|p| {
+                    self.raw_data
+                        .dates
+                        .get(p.index as usize)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .collect();
+            self.drawings.commit(tool.id(), points, point_dates);
+            self.toolbar.active_drawing = None;
         }
     }
 
@@ -369,8 +522,17 @@ impl ChartWidget {
         // past chart_rect; other tools narrow the clip back themselves.
         let painter = ui.painter_at(full_rect);
         for drawing in &self.drawings.committed {
-            let Some(tool) = self.drawings.tool_for(drawing.def_id) else { continue };
-            tool.render(&painter, chart_rect, full_rect, &camera, &drawing.points);
+            let Some(tool) = self.drawings.tool_for(drawing.def_id) else {
+                continue;
+            };
+            tool.render(
+                &painter,
+                chart_rect,
+                full_rect,
+                &camera,
+                &drawing.points,
+                &drawing.style,
+            );
         }
         if let Some(draft) = self.drawings.draft.as_ref() {
             if let Some(tool) = self.drawings.tool_for(draft.def_id) {
@@ -379,29 +541,188 @@ impl ChartWidget {
         }
     }
 
-    fn paint_crosshair(
-        &self,
+    fn paint_crosshair(&self, ui: &egui::Ui, chart_rect: egui::Rect, full_rect: egui::Rect) {
+        let camera = self.camera.lock();
+        crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
+    }
+
+    fn handle_drawing_selection(
+        &mut self,
         ui: &egui::Ui,
         chart_rect: egui::Rect,
         full_rect: egui::Rect,
     ) {
+        if !chart_rect.intersects(full_rect) {
+            return;
+        }
+
+        let (pointer_pos, pointer_down, pointer_released, modifiers, key_pressed) = ui.input(|i| {
+            (
+                i.pointer.latest_pos(),
+                i.pointer.primary_pressed(),
+                i.pointer.primary_released(),
+                i.modifiers,
+                first_consumed_key(&i.events),
+            )
+        });
+
+        let key_pressed = if ui.ctx().wants_keyboard_input() {
+            None
+        } else {
+            key_pressed
+        };
+
+        let (dx, dy) = {
+            let camera = self.camera.lock();
+            let x_range = camera.viewport.x as f64 / camera.x_scale;
+            let y_range = camera.viewport.y as f64 / camera.y_scale;
+            ((x_range * 0.05) as f32, (y_range * 0.05) as f32)
+        };
+
+        let toolbar_rect = self.cached_toolbar_rect(chart_rect, full_rect);
+
+        let input = SelectionInput {
+            pointer_pos,
+            pointer_down,
+            pointer_released,
+            modifiers,
+            key_pressed,
+            chart_rect,
+            full_rect,
+            toolbar_rect,
+            clone_offset: (dx, dy),
+        };
+
         let camera = self.camera.lock();
-        crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
+        selection_step(&mut self.drawings, &camera, &input);
+    }
+
+    /// Compute the anchor rect the toolbar will occupy this frame, so the
+    /// selection state machine can treat the grip area as a hit target.
+    fn cached_toolbar_rect(
+        &self,
+        chart_rect: egui::Rect,
+        full_rect: egui::Rect,
+    ) -> Option<egui::Rect> {
+        let drawing = self.drawings.selected_drawing()?;
+        let tool = self.drawings.tool_for(drawing.def_id)?;
+        let camera = self.camera.lock();
+        let bounds = tool.bounds(chart_rect, full_rect, &camera, &drawing.points);
+        Some(toolbar_anchor_rect(
+            bounds,
+            full_rect,
+            drawing.locked,
+            self.drawings.toolbar_offset,
+        ))
+    }
+
+    fn paint_drawing_selection(
+        &mut self,
+        ui: &mut egui::Ui,
+        chart_rect: egui::Rect,
+        full_rect: egui::Rect,
+    ) {
+        // 1. Paint the blue endpoint handles for the selected drawing.
+        let handles_to_paint: Option<Vec<egui::Pos2>> = {
+            let camera = self.camera.lock();
+            self.drawings
+                .selected_drawing()
+                .filter(|d| !d.locked)
+                .and_then(|d| {
+                    self.drawings
+                        .tool_for(d.def_id)
+                        .map(|t| t.handles(chart_rect, full_rect, &camera, &d.points))
+                })
+        };
+        if let Some(handles) = handles_to_paint {
+            let painter = ui.painter_at(full_rect);
+            paint_handles(&painter, &handles);
+        }
+
+        // 2. Paint the floating toolbar.
+        let Some(drawing_id) = self.drawings.selected else {
+            return;
+        };
+        let Some(idx) = self
+            .drawings
+            .committed
+            .iter()
+            .position(|d| d.id == drawing_id)
+        else {
+            return;
+        };
+        let def_id = self.drawings.committed[idx].def_id;
+        let Some(tool) = self.drawings.tool_for(def_id) else {
+            return;
+        };
+
+        // Split-borrow `self.drawings` so show_toolbar can hold &mut drawing,
+        // &mut drag, and &mut toolbar_offset simultaneously. The destructure
+        // gives three disjoint &mut references, which is safe.
+        let event = {
+            let camera = self.camera.lock();
+            let DrawingsManager {
+                committed,
+                drag,
+                toolbar_offset,
+                ..
+            } = &mut self.drawings;
+            let drawing = &mut committed[idx];
+            let (_rect, event) = show_toolbar(
+                ui,
+                tool.as_ref(),
+                chart_rect,
+                full_rect,
+                &camera,
+                drawing,
+                toolbar_offset,
+                drag,
+            );
+            event
+        };
+
+        // 3. Map toolbar events to manager mutations / modal opens.
+        match event {
+            ToolbarEvent::None => {}
+            ToolbarEvent::Clone => {
+                let (dx, dy) = {
+                    let camera = self.camera.lock();
+                    let x_range = camera.viewport.x as f64 / camera.x_scale;
+                    let y_range = camera.viewport.y as f64 / camera.y_scale;
+                    ((x_range * 0.05) as f32, (y_range * 0.05) as f32)
+                };
+                self.drawings.clone_selected(dx, dy);
+            }
+            ToolbarEvent::Delete => {
+                self.drawings.remove_selected();
+            }
+            ToolbarEvent::OpenSettings => {
+                if let Some(d) = self.drawings.selected_drawing() {
+                    self.drawing_settings_modal.open_for(d);
+                }
+            }
+        }
     }
 }
 
-fn full_chart_rect(
-    chart_rect: egui::Rect,
-    pane_slots: &[(egui::Rect, egui::Rect)],
-) -> egui::Rect {
+fn first_consumed_key(events: &[egui::Event]) -> Option<egui::Key> {
+    for e in events {
+        if let egui::Event::Key {
+            key, pressed: true, ..
+        } = e
+        {
+            return Some(*key);
+        }
+    }
+    None
+}
+
+fn full_chart_rect(chart_rect: egui::Rect, pane_slots: &[(egui::Rect, egui::Rect)]) -> egui::Rect {
     let bottom = pane_slots
         .last()
         .map(|(_, p)| p.bottom())
         .unwrap_or(chart_rect.bottom());
-    egui::Rect::from_min_max(
-        chart_rect.min,
-        egui::Pos2::new(chart_rect.right(), bottom),
-    )
+    egui::Rect::from_min_max(chart_rect.min, egui::Pos2::new(chart_rect.right(), bottom))
 }
 
 struct LegendItem {
@@ -409,6 +730,112 @@ struct LegendItem {
     name: String,
     entries: Vec<indicators::LegendEntry>,
     params: ParamValues,
+}
+
+struct FamilyMember {
+    instance_id: u64,
+    entries: Vec<indicators::LegendEntry>,
+    params: ParamValues,
+}
+
+struct FamilyGroup {
+    def_id: &'static str,
+    family_name: String,
+    members: Vec<FamilyMember>,
+}
+
+/// Paint the OHLC + change + volume row at `anchor`. Uses the candle under
+/// `cursor_idx` when hovering, otherwise the last candle.
+fn paint_ohlc_row(
+    ui: &egui::Ui,
+    clip_rect: egui::Rect,
+    data: &CandleData,
+    cursor_idx: Option<usize>,
+    anchor: egui::Pos2,
+) {
+    use egui::{Color32, FontId, Pos2};
+
+    if data.is_empty() {
+        return;
+    }
+    let idx = cursor_idx.unwrap_or(data.len() - 1).min(data.len() - 1);
+    let c = &data.instances[idx];
+    let prev_close = if idx > 0 {
+        data.instances[idx - 1].close
+    } else {
+        c.open
+    };
+    let change = c.close - prev_close;
+    let change_pct = if prev_close.abs() > f32::EPSILON {
+        (change / prev_close) * 100.0
+    } else {
+        0.0
+    };
+
+    let painter = ui.painter_at(clip_rect);
+    let font = FontId::monospace(12.0);
+    let label_color = Color32::from_rgb(140, 140, 150);
+    let value_color = Color32::from_rgb(225, 225, 230);
+    let up_color = Color32::from_rgb(38, 201, 160);
+    let down_color = Color32::from_rgb(255, 107, 107);
+    let change_color = if change >= 0.0 { up_color } else { down_color };
+    let sign = if change >= 0.0 { "+" } else { "" };
+
+    let parts: Vec<(String, Color32)> = vec![
+        ("O".into(), label_color),
+        (format!("{:.2}", c.open), value_color),
+        ("H".into(), label_color),
+        (format!("{:.2}", c.high), value_color),
+        ("L".into(), label_color),
+        (format!("{:.2}", c.low), value_color),
+        ("C".into(), label_color),
+        (format!("{:.2}", c.close), value_color),
+        (
+            format!("{}{:.2} ({}{:.2}%)", sign, change, sign, change_pct),
+            change_color,
+        ),
+        ("Vol".into(), label_color),
+        (format_with_commas(c.volume as i64), value_color),
+    ];
+
+    let mut x = anchor.x;
+    let mut first = true;
+    for (text, color) in parts {
+        if !first {
+            x += 6.0;
+        }
+        first = false;
+        let galley = painter.layout_no_wrap(text, font.clone(), color);
+        let size = galley.size();
+        painter.galley(Pos2::new(x, anchor.y), galley, color);
+        x += size.x;
+    }
+}
+
+/// Sort key used to order family members (e.g. multiple EMAs) by period
+/// ascending. Instances without a numeric `period` param sort to the end —
+/// keeping their relative insertion order under a stable sort.
+fn period_sort_key(params: &ParamValues) -> i32 {
+    match params.0.get("period") {
+        Some(zaned_chart_core::ParamValue::Int(v)) => *v,
+        _ => i32::MAX,
+    }
+}
+
+fn format_with_commas(n: i64) -> String {
+    let neg = n < 0;
+    let digits: Vec<char> = n.unsigned_abs().to_string().chars().collect();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    for (i, d) in digits.iter().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*d);
+    }
+    if neg {
+        out.insert(0, '-');
+    }
+    out
 }
 
 fn draw_legend_row(
@@ -430,7 +857,8 @@ fn draw_legend_row(
     let pill_bg = Color32::from_rgba_premultiplied(30, 30, 34, 220);
 
     // Measure text upfront so we can allocate the hover rect before painting.
-    let name_galley = painter.layout_no_wrap(display_name.to_string(), text_font.clone(), name_color);
+    let name_galley =
+        painter.layout_no_wrap(display_name.to_string(), text_font.clone(), name_color);
     let name_size = name_galley.size();
 
     let mut entry_galleys: Vec<(std::sync::Arc<egui::Galley>, Color32)> =
@@ -492,7 +920,11 @@ fn draw_legend_row(
         ui.id().with("legend_gear").with(id_salt),
         Sense::click(),
     );
-    let gear_color = if gear_resp.hovered() { icon_hover } else { icon_color };
+    let gear_color = if gear_resp.hovered() {
+        icon_hover
+    } else {
+        icon_color
+    };
     if gear_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -517,7 +949,11 @@ fn draw_legend_row(
         ui.id().with("legend_x").with(id_salt),
         Sense::click(),
     );
-    let x_color = if x_resp.hovered() { icon_hover } else { icon_color };
+    let x_color = if x_resp.hovered() {
+        icon_hover
+    } else {
+        icon_color
+    };
     if x_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

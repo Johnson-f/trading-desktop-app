@@ -1,8 +1,8 @@
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use zaned_chart_core::{
-    compute_vma, CandleData, ComputedSeries, InputSpec, LegendEntry, ParamField, ParamKind,
-    ParamSchema, ParamValues, Rgba,
+    CandleData, ComputedSeries, InputSpec, LegendEntry, ParamField, ParamKind, ParamSchema,
+    ParamValues, Rgba, compute_vma,
 };
 
 use super::super::super::util::{egui_color, format_volume};
@@ -20,7 +20,11 @@ pub static SCHEMA: ParamSchema = ParamSchema {
         ParamField {
             key: "period",
             label: "Period",
-            kind: ParamKind::Int { default: 50, min: 1, max: 500 },
+            kind: ParamKind::Int {
+                default: 50,
+                min: 1,
+                max: 500,
+            },
         },
         ParamField {
             key: "up_color",
@@ -53,11 +57,15 @@ pub fn factory() -> Box<dyn Indicator> {
 }
 
 impl Indicator for Volume {
-    fn id(&self) -> &'static str { ID }
+    fn id(&self) -> &'static str {
+        ID
+    }
     fn display_name(&self, params: &ParamValues) -> String {
         format!("VOL({})", params.int("period"))
     }
-    fn target(&self) -> RenderTarget { RenderTarget::SubPane }
+    fn target(&self) -> RenderTarget {
+        RenderTarget::SubPane
+    }
 
     fn inputs(&self, _params: &ParamValues) -> Vec<InputSpec> {
         vec![InputSpec::Volumes]
@@ -140,7 +148,10 @@ impl Indicator for Volume {
                         let x = x_mapper(i as f32);
                         if x < pane_rect.left() - 50.0 || x > pane_rect.right() + 50.0 {
                             if current.len() >= 2 {
-                                painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(1.5, vma_color)));
+                                painter.add(Shape::line(
+                                    std::mem::take(&mut current),
+                                    Stroke::new(1.5, vma_color),
+                                ));
                             } else {
                                 current.clear();
                             }
@@ -150,7 +161,10 @@ impl Indicator for Volume {
                     }
                     None => {
                         if current.len() >= 2 {
-                            painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(1.5, vma_color)));
+                            painter.add(Shape::line(
+                                std::mem::take(&mut current),
+                                Stroke::new(1.5, vma_color),
+                            ));
                         } else {
                             current.clear();
                         }

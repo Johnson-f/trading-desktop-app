@@ -8,7 +8,7 @@ pub mod indicators;
 pub mod params;
 pub mod series;
 
-pub use candle::{CandleData, CandleInstance, JsonCandle};
+pub use candle::{CandleData, CandleInstance, JsonCandle, Timeframe};
 pub use color::Rgba;
 pub use indicators::{compute_ema, compute_rsi, compute_vma};
 pub use params::{ParamField, ParamKind, ParamSchema, ParamValue, ParamValues};

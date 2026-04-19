@@ -76,17 +76,27 @@ mod tests {
             ParamField {
                 key: "period",
                 label: "Period",
-                kind: ParamKind::Int { default: 14, min: 1, max: 500 },
+                kind: ParamKind::Int {
+                    default: 14,
+                    min: 1,
+                    max: 500,
+                },
             },
             ParamField {
                 key: "mult",
                 label: "Multiplier",
-                kind: ParamKind::Float { default: 2.0, min: 0.1, max: 10.0 },
+                kind: ParamKind::Float {
+                    default: 2.0,
+                    min: 0.1,
+                    max: 10.0,
+                },
             },
             ParamField {
                 key: "color",
                 label: "Color",
-                kind: ParamKind::Color { default: Rgba::from_rgb(10, 20, 30) },
+                kind: ParamKind::Color {
+                    default: Rgba::from_rgb(10, 20, 30),
+                },
             },
         ];
         ParamSchema { fields: FIELDS }

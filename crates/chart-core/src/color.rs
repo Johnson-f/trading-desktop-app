@@ -3,7 +3,7 @@
 /// Chart-core stays renderer-agnostic, so colors live here as raw bytes.
 /// Renderers (egui, wgpu shaders, …) convert at their boundary — see
 /// `apps/desktop/.../indicators/color_bridge.rs` for the egui side.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Rgba(pub [u8; 4]);
 
 impl Rgba {

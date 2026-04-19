@@ -53,13 +53,19 @@ impl Camera {
         let start = (self.x_offset as usize).max(0);
         let visible_count = (self.viewport.x as f64 / self.x_scale).ceil() as usize;
         let end = (start + visible_count + 1).min(data.len());
-        if start >= end { return; }
+        if start >= end {
+            return;
+        }
 
         let mut min_price = f32::MAX;
         let mut max_price = f32::MIN;
         for candle in &data.instances[start..end] {
-            if candle.low < min_price { min_price = candle.low; }
-            if candle.high > max_price { max_price = candle.high; }
+            if candle.low < min_price {
+                min_price = candle.low;
+            }
+            if candle.high > max_price {
+                max_price = candle.high;
+            }
         }
 
         let range = (max_price - min_price) as f64;

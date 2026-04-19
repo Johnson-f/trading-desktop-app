@@ -1,10 +1,34 @@
+use egui::{Pos2, Vec2};
+use zaned_chart_core::CandleData;
+
 use super::registry;
-use super::trait_def::{CommittedDrawing, DrawingDraft, DrawingTool, InputResult, WorldPoint};
+use super::trait_def::{CommittedDrawing, DrawingDraft, DrawingTool, WorldPoint};
 
 pub struct DrawingsManager {
     pub committed: Vec<CommittedDrawing>,
     pub draft: Option<DrawingDraft>,
+    pub selected: Option<u64>,
+    pub toolbar_offset: Vec2,
+    pub drag: SelectionDrag,
     next_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SelectionDrag {
+    None,
+    Handle {
+        drawing_id: u64,
+        handle_idx: usize,
+    },
+    Body {
+        drawing_id: u64,
+        anchor_world: WorldPoint,
+        anchor_pointer_world: WorldPoint,
+    },
+    ToolbarOffset {
+        start_offset: Vec2,
+        start_pointer: Pos2,
+    },
 }
 
 impl Default for DrawingsManager {
@@ -12,22 +36,51 @@ impl Default for DrawingsManager {
         Self {
             committed: Vec::new(),
             draft: None,
+            selected: None,
+            toolbar_offset: Vec2::ZERO,
+            drag: SelectionDrag::None,
             next_id: 1,
         }
     }
 }
 
 impl DrawingsManager {
-    pub fn commit(&mut self, def_id: &'static str, points: Vec<WorldPoint>) -> u64 {
+    pub fn commit(
+        &mut self,
+        def_id: &'static str,
+        points: Vec<WorldPoint>,
+        point_dates: Vec<String>,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         self.committed.push(CommittedDrawing {
             id,
             def_id,
             points,
+            point_dates,
+            style: super::style::DrawingStyle::default(),
+            locked: false,
         });
         self.draft = None;
         id
+    }
+
+    /// Remap every committed drawing's point indices to match `data` (a
+    /// potentially aggregated CandleData). Each point carries a stored date;
+    /// we look up the aggregated candle that contains that date and update
+    /// `index` accordingly.
+    pub fn remap_to_data(&mut self, data: &CandleData) {
+        for drawing in &mut self.committed {
+            for (i, point) in drawing.points.iter_mut().enumerate() {
+                if let Some(date) = drawing.point_dates.get(i) {
+                    if !date.is_empty() {
+                        if let Some(idx) = data.index_for_date(date) {
+                            point.index = idx as f32;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn cancel_draft(&mut self) {
@@ -38,19 +91,198 @@ impl DrawingsManager {
     pub fn tool_for(&self, def_id: &str) -> Option<Box<dyn DrawingTool>> {
         registry::get(def_id).map(|def| (def.factory)())
     }
+
+    pub fn select(&mut self, id: u64) {
+        self.selected = Some(id);
+        self.toolbar_offset = Vec2::ZERO;
+    }
+
+    pub fn deselect(&mut self) {
+        self.selected = None;
+        self.toolbar_offset = Vec2::ZERO;
+        self.drag = SelectionDrag::None;
+    }
+
+    pub fn selected_drawing(&self) -> Option<&CommittedDrawing> {
+        let id = self.selected?;
+        self.committed.iter().find(|d| d.id == id)
+    }
+
+    pub fn selected_drawing_mut(&mut self) -> Option<&mut CommittedDrawing> {
+        let id = self.selected?;
+        self.committed.iter_mut().find(|d| d.id == id)
+    }
+
+    /// Returns the id of the new clone, or None if nothing was selected.
+    /// Offsets every point by (dx, dy) in world space and selects the clone.
+    pub fn clone_selected(&mut self, dx: f32, dy: f32) -> Option<u64> {
+        let src = self.selected_drawing()?.clone();
+        let id = self.next_id;
+        self.next_id += 1;
+        let points = src
+            .points
+            .iter()
+            .map(|p| WorldPoint {
+                index: p.index + dx,
+                price: p.price + dy,
+            })
+            .collect();
+        self.committed.push(CommittedDrawing {
+            id,
+            def_id: src.def_id,
+            points,
+            point_dates: src.point_dates.clone(),
+            style: src.style,
+            locked: false,
+        });
+        self.selected = Some(id);
+        Some(id)
+    }
+
+    pub fn remove_selected(&mut self) {
+        let Some(id) = self.selected else {
+            return;
+        };
+        self.committed.retain(|d| d.id != id);
+        self.selected = None;
+        self.toolbar_offset = Vec2::ZERO;
+        self.drag = SelectionDrag::None;
+    }
+
+    pub fn toggle_lock_selected(&mut self) {
+        if let Some(d) = self.selected_drawing_mut() {
+            d.locked = !d.locked;
+        }
+    }
+
+    /// Translate every point of the selected drawing by (dx, dy) in world units.
+    /// Suppressed when the drawing is locked.
+    pub fn nudge_selected(&mut self, dx: f32, dy: f32) {
+        let Some(d) = self.selected_drawing_mut() else {
+            return;
+        };
+        if d.locked {
+            return;
+        }
+        for p in d.points.iter_mut() {
+            p.index += dx;
+            p.price += dy;
+        }
+    }
+
+    /// Translate a specific drawing's handle to a new world position.
+    pub fn move_handle(&mut self, drawing_id: u64, handle_idx: usize, target: WorldPoint) {
+        let Some(d) = self.committed.iter_mut().find(|d| d.id == drawing_id) else {
+            return;
+        };
+        if d.locked {
+            return;
+        }
+        if let Some(pt) = d.points.get_mut(handle_idx) {
+            *pt = target;
+        }
+    }
+
+    /// Translate every point of a drawing by a world-space delta.
+    pub fn translate_drawing(&mut self, drawing_id: u64, dx: f32, dy: f32) {
+        let Some(d) = self.committed.iter_mut().find(|d| d.id == drawing_id) else {
+            return;
+        };
+        if d.locked {
+            return;
+        }
+        for p in d.points.iter_mut() {
+            p.index += dx;
+            p.price += dy;
+        }
+    }
 }
 
-/// Drive the currently-active tool against the manager's draft + committed
-/// lists. Caller supplies the tool; this helper wires up the `InputResult`.
-pub fn dispatch_input(
-    tool: &dyn DrawingTool,
-    manager: &mut DrawingsManager,
-    ui: &egui::Ui,
-    chart_rect: egui::Rect,
-    camera: &super::super::camera::Camera,
-) {
-    let result = tool.handle_input(ui, chart_rect, camera, &mut manager.draft);
-    if let InputResult::Commit(points) = result {
-        manager.commit(tool.id(), points);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui_components::widgets::charts::drawings::trait_def::WorldPoint;
+
+    fn make_manager_with_one() -> (DrawingsManager, u64) {
+        let mut m = DrawingsManager::default();
+        let id = m.commit(
+            "trend_line",
+            vec![
+                WorldPoint {
+                    index: 1.0,
+                    price: 10.0,
+                },
+                WorldPoint {
+                    index: 5.0,
+                    price: 20.0,
+                },
+            ],
+            vec![],
+        );
+        (m, id)
+    }
+
+    #[test]
+    fn clone_selected_offsets_and_reselects() {
+        let (mut m, id) = make_manager_with_one();
+        m.selected = Some(id);
+        let new_id = m.clone_selected(0.5, 1.0).unwrap();
+        assert_ne!(new_id, id);
+        assert_eq!(m.committed.len(), 2);
+        assert_eq!(m.selected, Some(new_id));
+        let cloned = m.committed.iter().find(|d| d.id == new_id).unwrap();
+        assert!((cloned.points[0].index - 1.5).abs() < 1e-3);
+        assert!((cloned.points[0].price - 11.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn clone_selected_noop_when_nothing_selected() {
+        let (mut m, _) = make_manager_with_one();
+        m.selected = None;
+        assert_eq!(m.clone_selected(0.5, 1.0), None);
+        assert_eq!(m.committed.len(), 1);
+    }
+
+    #[test]
+    fn remove_selected_clears_selection() {
+        let (mut m, id) = make_manager_with_one();
+        m.selected = Some(id);
+        m.remove_selected();
+        assert!(m.committed.is_empty());
+        assert_eq!(m.selected, None);
+    }
+
+    #[test]
+    fn toggle_lock_flips() {
+        let (mut m, id) = make_manager_with_one();
+        m.selected = Some(id);
+        assert!(!m.committed[0].locked);
+        m.toggle_lock_selected();
+        assert!(m.committed[0].locked);
+        m.toggle_lock_selected();
+        assert!(!m.committed[0].locked);
+    }
+
+    #[test]
+    fn nudge_selected_shifts_all_points() {
+        let (mut m, id) = make_manager_with_one();
+        m.selected = Some(id);
+        m.nudge_selected(0.25, -0.5);
+        let d = &m.committed[0];
+        assert!((d.points[0].index - 1.25).abs() < 1e-3);
+        assert!((d.points[0].price - 9.5).abs() < 1e-3);
+        assert!((d.points[1].index - 5.25).abs() < 1e-3);
+        assert!((d.points[1].price - 19.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn nudge_selected_suppressed_when_locked() {
+        let (mut m, id) = make_manager_with_one();
+        m.selected = Some(id);
+        m.toggle_lock_selected();
+        m.nudge_selected(0.25, -0.5);
+        let d = &m.committed[0];
+        // Unchanged.
+        assert!((d.points[0].index - 1.0).abs() < 1e-3);
     }
 }

@@ -22,8 +22,13 @@ impl InteractionState {
         camera: &mut Camera,
         data: &CandleData,
     ) {
-        let response = ui.interact(interact_rect, ui.id().with("chart_interaction"), egui::Sense::click_and_drag());
-        let in_area = interact_rect.contains(ui.input(|i| i.pointer.latest_pos().unwrap_or(Pos2::ZERO)));
+        let response = ui.interact(
+            interact_rect,
+            ui.id().with("chart_interaction"),
+            egui::Sense::click_and_drag(),
+        );
+        let in_area =
+            interact_rect.contains(ui.input(|i| i.pointer.latest_pos().unwrap_or(Pos2::ZERO)));
 
         // Double-click to reset view (fit all data)
         if response.double_clicked() {
@@ -66,7 +71,7 @@ impl InteractionState {
                     let cursor_index = camera.x_offset + cursor_x_pixel as f64 / camera.x_scale;
 
                     camera.x_scale *= zoom_factor;
-                    camera.x_scale = camera.x_scale.clamp(4.0, 80.0);
+                    camera.x_scale = camera.x_scale.clamp(2.0, 800.0);
 
                     camera.x_offset = cursor_index - cursor_x_pixel as f64 / camera.x_scale;
                     let max_offset = (data.len() as f64 - 1.0).max(0.0);
@@ -85,7 +90,7 @@ impl InteractionState {
                 let cursor_index = camera.x_offset + cursor_x_pixel as f64 / camera.x_scale;
 
                 camera.x_scale *= zoom_delta as f64;
-                camera.x_scale = camera.x_scale.clamp(4.0, 80.0);
+                camera.x_scale = camera.x_scale.clamp(2.0, 800.0);
 
                 camera.x_offset = cursor_index - cursor_x_pixel as f64 / camera.x_scale;
                 let max_offset = (data.len() as f64 - 1.0).max(0.0);

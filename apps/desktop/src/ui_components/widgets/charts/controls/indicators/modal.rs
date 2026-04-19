@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
 use super::super::super::indicators::{self, IndicatorManager, ParamValues, RenderTarget};
-use super::params_popover::{show as show_params_popover, ParamsResponse};
+use super::params_popover::{ParamsResponse, show as show_params_popover};
 
 const MODAL_BG: Color32 = Color32::from_rgb(30, 30, 34);
 const BORDER: Color32 = Color32::from_rgb(50, 50, 55);
@@ -15,8 +15,15 @@ const STAR_INACTIVE: Color32 = Color32::from_rgb(80, 80, 90);
 const SIDEBAR_BG: Color32 = Color32::from_rgb(34, 34, 38);
 
 pub enum ModalEditor {
-    Add { def_id: &'static str, draft: ParamValues },
-    Edit { instance_id: u64, def_id: &'static str, draft: ParamValues },
+    Add {
+        def_id: &'static str,
+        draft: ParamValues,
+    },
+    Edit {
+        instance_id: u64,
+        def_id: &'static str,
+        draft: ParamValues,
+    },
 }
 
 pub struct IndicatorModal {
@@ -99,16 +106,25 @@ impl IndicatorModal {
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let close = ui.add(
-                egui::Button::new(RichText::new("●").color(Color32::from_rgb(255, 95, 87)).size(12.0))
-                    .fill(Color32::TRANSPARENT)
-                    .stroke(Stroke::NONE),
+                egui::Button::new(
+                    RichText::new("●")
+                        .color(Color32::from_rgb(255, 95, 87))
+                        .size(12.0),
+                )
+                .fill(Color32::TRANSPARENT)
+                .stroke(Stroke::NONE),
             );
             if close.clicked() {
                 self.open = false;
                 self.editor = None;
             }
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("Indicators").color(TEXT_WHITE).size(14.0).strong());
+                ui.label(
+                    RichText::new("Indicators")
+                        .color(TEXT_WHITE)
+                        .size(14.0)
+                        .strong(),
+                );
             });
         });
     }
@@ -125,8 +141,12 @@ impl IndicatorModal {
                         .fill(Color32::TRANSPARENT)
                         .stroke(Stroke::NONE),
                 );
-                if btn.clicked() { self.active_tab = i; }
-                if btn.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+                if btn.clicked() {
+                    self.active_tab = i;
+                }
+                if btn.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 if is_active {
                     let rect = btn.rect;
                     let underline = egui::Rect::from_min_size(
@@ -205,7 +225,9 @@ impl IndicatorModal {
                             let star_color = if fav { STAR_ACTIVE } else { STAR_INACTIVE };
                             let star_btn = ui.add(
                                 egui::Button::new(
-                                    RichText::new(egui_phosphor::regular::STAR).size(14.0).color(star_color),
+                                    RichText::new(egui_phosphor::regular::STAR)
+                                        .size(14.0)
+                                        .color(star_color),
                                 )
                                 .fill(Color32::TRANSPARENT)
                                 .stroke(Stroke::NONE),
@@ -234,7 +256,11 @@ impl IndicatorModal {
                                 });
                             }
 
-                            ui.label(RichText::new(format!("{}", def.likes)).size(11.0).color(TEXT_MUTED));
+                            ui.label(
+                                RichText::new(format!("{}", def.likes))
+                                    .size(11.0)
+                                    .color(TEXT_MUTED),
+                            );
                         });
                     });
                 });
@@ -244,7 +270,8 @@ impl IndicatorModal {
                     egui::Pos2::new(row_rect.left(), row_rect.bottom()),
                     Vec2::new(row_rect.width(), 1.0),
                 );
-                ui.painter().rect_filled(sep_rect, 0.0, Color32::from_rgb(40, 40, 44));
+                ui.painter()
+                    .rect_filled(sep_rect, 0.0, Color32::from_rgb(40, 40, 44));
             }
         });
 
@@ -252,7 +279,9 @@ impl IndicatorModal {
     }
 
     fn maybe_draw_editor(&mut self, ui: &mut egui::Ui, manager: &mut IndicatorManager) {
-        let Some(editor) = self.editor.as_mut() else { return };
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
         ui.add_space(8.0);
         let (schema, confirm_label) = match editor {
             ModalEditor::Add { def_id, .. } => {
@@ -277,7 +306,9 @@ impl IndicatorModal {
                     ModalEditor::Add { def_id, draft } => {
                         manager.add(def_id, draft);
                     }
-                    ModalEditor::Edit { instance_id, draft, .. } => {
+                    ModalEditor::Edit {
+                        instance_id, draft, ..
+                    } => {
                         manager.update_params(instance_id, draft);
                     }
                 }
@@ -298,17 +329,35 @@ impl IndicatorModal {
                 let count = manager.active.len();
                 ui.label(
                     RichText::new(format!("Added Indicators ({})", count))
-                        .size(11.0).color(TEXT_WHITE).strong(),
+                        .size(11.0)
+                        .color(TEXT_WHITE)
+                        .strong(),
                 );
                 ui.add_space(8.0);
 
-                let main_ids: Vec<(u64, &'static str, String)> = manager.active.iter()
+                let main_ids: Vec<(u64, &'static str, String)> = manager
+                    .active
+                    .iter()
                     .filter(|a| a.indicator().target() == RenderTarget::MainOverlay)
-                    .map(|a| (a.instance_id, a.def_id, a.indicator().display_name(&a.params)))
+                    .map(|a| {
+                        (
+                            a.instance_id,
+                            a.def_id,
+                            a.indicator().display_name(&a.params),
+                        )
+                    })
                     .collect();
-                let sub_ids: Vec<(u64, &'static str, String)> = manager.active.iter()
+                let sub_ids: Vec<(u64, &'static str, String)> = manager
+                    .active
+                    .iter()
                     .filter(|a| a.indicator().target() == RenderTarget::SubPane)
-                    .map(|a| (a.instance_id, a.def_id, a.indicator().display_name(&a.params)))
+                    .map(|a| {
+                        (
+                            a.instance_id,
+                            a.def_id,
+                            a.indicator().display_name(&a.params),
+                        )
+                    })
                     .collect();
 
                 let mut to_edit: Option<(u64, &'static str, ParamValues)> = None;
@@ -318,7 +367,15 @@ impl IndicatorModal {
                     ui.label(RichText::new("Main Chart").size(10.0).color(TEXT_MUTED));
                     ui.add_space(4.0);
                     for (id, def_id, label) in &main_ids {
-                        draw_sidebar_row(ui, label, &mut to_edit, &mut to_remove, *id, def_id, manager);
+                        draw_sidebar_row(
+                            ui,
+                            label,
+                            &mut to_edit,
+                            &mut to_remove,
+                            *id,
+                            def_id,
+                            manager,
+                        );
                     }
                     ui.add_space(8.0);
                 }
@@ -327,7 +384,15 @@ impl IndicatorModal {
                     ui.label(RichText::new("Sub Chart").size(10.0).color(TEXT_MUTED));
                     ui.add_space(4.0);
                     for (id, def_id, label) in &sub_ids {
-                        draw_sidebar_row(ui, label, &mut to_edit, &mut to_remove, *id, def_id, manager);
+                        draw_sidebar_row(
+                            ui,
+                            label,
+                            &mut to_edit,
+                            &mut to_remove,
+                            *id,
+                            def_id,
+                            manager,
+                        );
                     }
                 }
 
@@ -335,7 +400,11 @@ impl IndicatorModal {
                     manager.remove(id);
                 }
                 if let Some((id, def_id, draft)) = to_edit {
-                    self.editor = Some(ModalEditor::Edit { instance_id: id, def_id, draft });
+                    self.editor = Some(ModalEditor::Edit {
+                        instance_id: id,
+                        def_id,
+                        draft,
+                    });
                 }
             });
     }
@@ -354,16 +423,22 @@ fn draw_sidebar_row(
         ui.label(RichText::new(label).size(11.0).color(TEXT_WHITE));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let del = ui.add(
-                egui::Button::new(RichText::new(egui_phosphor::regular::X).size(12.0).color(TEXT_MUTED))
-                    .fill(Color32::TRANSPARENT)
-                    .stroke(Stroke::NONE),
+                egui::Button::new(
+                    RichText::new(egui_phosphor::regular::X)
+                        .size(12.0)
+                        .color(TEXT_MUTED),
+                )
+                .fill(Color32::TRANSPARENT)
+                .stroke(Stroke::NONE),
             );
             if del.clicked() {
                 *to_remove = Some(instance_id);
             }
             let gear = ui.add(
                 egui::Button::new(
-                    RichText::new(egui_phosphor::regular::GEAR).size(12.0).color(TEXT_MUTED),
+                    RichText::new(egui_phosphor::regular::GEAR)
+                        .size(12.0)
+                        .color(TEXT_MUTED),
                 )
                 .fill(Color32::TRANSPARENT)
                 .stroke(Stroke::NONE),

@@ -1,4 +1,5 @@
 pub mod extended;
+pub mod fib_retracement;
 pub mod horizontal_line;
 pub mod horizontal_ray;
 pub mod ray;

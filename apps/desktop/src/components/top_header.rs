@@ -1,4 +1,6 @@
-use eframe::egui::{self, Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Stroke, Vec2};
+use eframe::egui::{
+    self, Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Stroke, Vec2,
+};
 
 // ── Color Palette ──────────────────────────────────────────────
 const HEADER_BG: Color32 = Color32::from_rgb(24, 24, 28);
@@ -37,8 +39,8 @@ const BROWSE_ICONS: [&str; 3] = [
 
 pub struct TopHeader {
     pub search_query: String,
-    pub active_group: usize,  // 0 = Charts, 1 = Browse
-    pub active_icon: usize,   // index within the active group
+    pub active_group: usize, // 0 = Charts, 1 = Browse
+    pub active_icon: usize,  // index within the active group
 }
 
 impl Default for TopHeader {
@@ -75,7 +77,11 @@ impl TopHeader {
                 ICON_INACTIVE
             };
 
-            let bg_fill = if is_active { ACCENT_BG } else { Color32::TRANSPARENT };
+            let bg_fill = if is_active {
+                ACCENT_BG
+            } else {
+                Color32::TRANSPARENT
+            };
 
             let btn = ui.add(
                 egui::Button::new(RichText::new(*icon).size(16.0).color(icon_color))
@@ -148,7 +154,9 @@ impl TopHeader {
     fn paint_bell(ui: &mut egui::Ui, has_notification: bool) {
         let btn = ui.add(
             egui::Button::new(
-                RichText::new(egui_phosphor::regular::BELL).size(16.0).color(ICON_INACTIVE),
+                RichText::new(egui_phosphor::regular::BELL)
+                    .size(16.0)
+                    .color(ICON_INACTIVE),
             )
             .fill(Color32::TRANSPARENT)
             .corner_radius(CornerRadius::same(ICON_ROUNDING as u8))
@@ -170,8 +178,10 @@ impl TopHeader {
 
         if has_notification {
             let dot_center = Pos2::new(btn.rect.right() - 7.0, btn.rect.top() + 7.0);
-            ui.painter().circle_filled(dot_center, DOT_RADIUS + 1.5, HEADER_BG);
-            ui.painter().circle_filled(dot_center, DOT_RADIUS, NOTIFICATION_DOT);
+            ui.painter()
+                .circle_filled(dot_center, DOT_RADIUS + 1.5, HEADER_BG);
+            ui.painter()
+                .circle_filled(dot_center, DOT_RADIUS, NOTIFICATION_DOT);
         }
     }
 
@@ -189,7 +199,8 @@ impl TopHeader {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
-        ui.painter().circle_filled(rect.center(), AVATAR_SIZE / 2.0, color);
+        ui.painter()
+            .circle_filled(rect.center(), AVATAR_SIZE / 2.0, color);
 
         ui.painter().text(
             rect.center(),
@@ -203,7 +214,12 @@ impl TopHeader {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         egui::Frame::new()
             .fill(HEADER_BG)
-            .inner_margin(egui::Margin { left: 76, right: 16, top: 0, bottom: 0 })
+            .inner_margin(egui::Margin {
+                left: 76,
+                right: 16,
+                top: 0,
+                bottom: 0,
+            })
             .stroke(Stroke::NONE)
             .show(ui, |ui| {
                 ui.set_height(HEADER_HEIGHT);

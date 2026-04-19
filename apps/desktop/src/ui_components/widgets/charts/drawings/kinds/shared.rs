@@ -5,7 +5,7 @@
 use egui::Rect;
 
 use super::super::super::camera::Camera;
-use super::super::trait_def::{screen_to_world, DrawingDraft, InputResult};
+use super::super::trait_def::{DrawingDraft, InputResult, screen_to_world};
 
 /// Standard input shape for single-click tools (horizontal line, vertical
 /// line, horizontal ray). While the tool is armed the draft mirrors the

@@ -27,9 +27,7 @@ pub struct MainSidebar {
 
 impl Default for MainSidebar {
     fn default() -> Self {
-        Self {
-            stocks: Vec::new(),
-        }
+        Self { stocks: Vec::new() }
     }
 }
 
@@ -47,7 +45,11 @@ impl MainSidebar {
             dropdown_frame.show(ui, |ui| {
                 ui.set_width(available.max(80.0));
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Recently Viewed").color(TEXT_WHITE).size(11.0));
+                    ui.label(
+                        RichText::new("Recently Viewed")
+                            .color(TEXT_WHITE)
+                            .size(11.0),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(egui_phosphor::regular::CARET_DOWN)
@@ -123,7 +125,12 @@ impl MainSidebar {
             ui.set_width(ui.available_width());
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new(&stock.symbol).color(TEXT_WHITE).strong().size(13.0));
+                ui.label(
+                    RichText::new(&stock.symbol)
+                        .color(TEXT_WHITE)
+                        .strong()
+                        .size(13.0),
+                );
 
                 if stock.has_news {
                     let badge = egui::Frame::new()
@@ -145,12 +152,7 @@ impl MainSidebar {
                         .corner_radius(CornerRadius::same(2))
                         .inner_margin(egui::Margin::symmetric(3, 1));
                     badge.show(ui, |ui| {
-                        ui.label(
-                            RichText::new("E")
-                                .size(8.0)
-                                .color(Color32::BLACK)
-                                .strong(),
-                        );
+                        ui.label(RichText::new("E").size(8.0).color(Color32::BLACK).strong());
                     });
                 }
 
@@ -203,10 +205,8 @@ impl MainSidebar {
 
             ui.add_space(4.0);
 
-            let sep_rect = egui::Rect::from_min_size(
-                ui.cursor().min,
-                Vec2::new(ui.available_width(), 1.0),
-            );
+            let sep_rect =
+                egui::Rect::from_min_size(ui.cursor().min, Vec2::new(ui.available_width(), 1.0));
             ui.painter().rect_filled(sep_rect, 0.0, BORDER);
             ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
 
@@ -215,7 +215,11 @@ impl MainSidebar {
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new("No stocks yet").color(TEXT_MUTED).size(12.0));
                     ui.add_space(4.0);
-                    ui.label(RichText::new("Search and add symbols to your watchlist").color(TEXT_MUTED).size(10.0));
+                    ui.label(
+                        RichText::new("Search and add symbols to your watchlist")
+                            .color(TEXT_MUTED)
+                            .size(10.0),
+                    );
                 });
             } else {
                 egui::ScrollArea::vertical().show(ui, |ui| {

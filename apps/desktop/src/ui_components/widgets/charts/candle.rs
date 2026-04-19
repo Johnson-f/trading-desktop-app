@@ -3,7 +3,7 @@
 
 use wgpu::util::DeviceExt;
 
-pub use zaned_chart_core::{CandleData, CandleInstance, JsonCandle};
+pub use zaned_chart_core::{CandleData, CandleInstance, JsonCandle, Timeframe};
 
 /// Vertex buffer layout for `CandleInstance` as a per-instance vertex input.
 pub fn candle_instance_desc() -> wgpu::VertexBufferLayout<'static> {
@@ -11,12 +11,36 @@ pub fn candle_instance_desc() -> wgpu::VertexBufferLayout<'static> {
         array_stride: std::mem::size_of::<CandleInstance>() as wgpu::BufferAddress,
         step_mode: wgpu::VertexStepMode::Instance,
         attributes: &[
-            wgpu::VertexAttribute { offset: 0,  shader_location: 0, format: wgpu::VertexFormat::Float32 },
-            wgpu::VertexAttribute { offset: 4,  shader_location: 1, format: wgpu::VertexFormat::Float32 },
-            wgpu::VertexAttribute { offset: 8,  shader_location: 2, format: wgpu::VertexFormat::Float32 },
-            wgpu::VertexAttribute { offset: 12, shader_location: 3, format: wgpu::VertexFormat::Float32 },
-            wgpu::VertexAttribute { offset: 16, shader_location: 4, format: wgpu::VertexFormat::Float32 },
-            wgpu::VertexAttribute { offset: 20, shader_location: 5, format: wgpu::VertexFormat::Float32 },
+            wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32,
+            },
+            wgpu::VertexAttribute {
+                offset: 4,
+                shader_location: 1,
+                format: wgpu::VertexFormat::Float32,
+            },
+            wgpu::VertexAttribute {
+                offset: 8,
+                shader_location: 2,
+                format: wgpu::VertexFormat::Float32,
+            },
+            wgpu::VertexAttribute {
+                offset: 12,
+                shader_location: 3,
+                format: wgpu::VertexFormat::Float32,
+            },
+            wgpu::VertexAttribute {
+                offset: 16,
+                shader_location: 4,
+                format: wgpu::VertexFormat::Float32,
+            },
+            wgpu::VertexAttribute {
+                offset: 20,
+                shader_location: 5,
+                format: wgpu::VertexFormat::Float32,
+            },
         ],
     }
 }

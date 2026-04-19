@@ -1,4 +1,6 @@
-use super::kinds::{extended, horizontal_line, horizontal_ray, ray, trend_line, vertical_line};
+use super::kinds::{
+    extended, fib_retracement, horizontal_line, horizontal_ray, ray, trend_line, vertical_line,
+};
 use super::trait_def::DrawingTool;
 
 pub struct DrawingToolDef {
@@ -44,6 +46,12 @@ static DEFS: &[DrawingToolDef] = &[
         name: horizontal_ray::NAME,
         icon: horizontal_ray::ICON,
         factory: horizontal_ray::factory,
+    },
+    DrawingToolDef {
+        id: fib_retracement::ID,
+        name: fib_retracement::NAME,
+        icon: fib_retracement::ICON,
+        factory: fib_retracement::factory,
     },
 ];
 

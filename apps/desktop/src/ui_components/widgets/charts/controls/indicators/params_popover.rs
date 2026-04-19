@@ -1,6 +1,8 @@
 use egui::{Color32, CornerRadius, DragValue, RichText, Stroke, Ui};
 
-use super::super::super::indicators::{ParamField, ParamKind, ParamSchema, ParamValue, ParamValues};
+use super::super::super::indicators::{
+    ParamField, ParamKind, ParamSchema, ParamValue, ParamValues,
+};
 
 const TEXT_WHITE: Color32 = Color32::from_rgb(240, 240, 242);
 const TEXT_MUTED: Color32 = Color32::from_rgb(160, 160, 170);
