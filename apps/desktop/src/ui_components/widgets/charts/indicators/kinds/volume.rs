@@ -12,7 +12,7 @@ pub const ID: &str = "volume";
 pub const NAME: &str = "VOL";
 pub const LIKES: u32 = 12293;
 
-const PANE_BG: Color32 = Color32::from_rgb(18, 18, 22);
+const PANE_BG: Color32 = Color32::from_rgb(0, 0, 0);
 const LABEL_COLOR: Color32 = Color32::from_rgb(100, 100, 110);
 
 pub static SCHEMA: ParamSchema = ParamSchema {

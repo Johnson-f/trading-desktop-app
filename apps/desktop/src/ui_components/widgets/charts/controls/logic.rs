@@ -5,7 +5,7 @@ use super::super::drawings;
 use super::super::indicators::IndicatorManager;
 use super::indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal};
 
-const BG: Color32 = Color32::from_rgb(18, 18, 22);
+const BG: Color32 = Color32::from_rgb(0, 0, 0);
 const BORDER: Color32 = Color32::from_rgb(30, 30, 33);
 const ICON_COLOR: Color32 = Color32::from_rgb(120, 120, 130);
 const ICON_HOVER: Color32 = Color32::from_rgb(200, 200, 210);

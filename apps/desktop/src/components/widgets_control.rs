@@ -2,7 +2,7 @@ use crate::ui_components::widgets::charts::ChartWidget;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
 // ── Colors ─────────────────────────────────────────────────────
-const BG: Color32 = Color32::from_rgb(18, 18, 22);
+const BG: Color32 = Color32::from_rgb(0, 0, 0);
 const TAB_ACTIVE_BG: Color32 = Color32::from_rgb(30, 30, 34);
 const TAB_ACTIVE_TEXT: Color32 = Color32::from_rgb(240, 240, 242);
 const TAB_INACTIVE_TEXT: Color32 = Color32::from_rgb(100, 100, 110);

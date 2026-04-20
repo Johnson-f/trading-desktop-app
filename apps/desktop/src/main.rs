@@ -22,7 +22,7 @@ fn main() -> Result<(), eframe::Error> {
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             cc.egui_ctx.set_fonts(fonts);
             let mut visuals = egui::Visuals::dark();
-            let bg = egui::Color32::from_rgb(18, 18, 22);
+            let bg = egui::Color32::from_rgb(0, 0, 0);
             visuals.panel_fill = bg;
             visuals.window_fill = bg;
             visuals.faint_bg_color = bg;
@@ -67,13 +67,13 @@ impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.top_header.show(ui);
 
-        let bg = egui::Color32::from_rgb(18, 18, 22);
+        let bg = egui::Color32::from_rgb(0, 0, 0);
 
         // Kill the panel separator line globally before creating panels
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
 
         // Watchlist sidebar on the left
-        let sidebar_bg = egui::Color32::from_rgb(14, 14, 18);
+        let sidebar_bg = egui::Color32::from_rgb(0, 0, 0);
         egui::Panel::left("main_sidebar")
             .default_size(220.0)
             .size_range(220.0..=400.0)
