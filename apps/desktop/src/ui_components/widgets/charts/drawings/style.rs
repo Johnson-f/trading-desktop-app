@@ -1,8 +1,18 @@
 use eframe::egui::{Color32, Painter, Pos2, Rect, Stroke};
 use serde::{Deserialize, Serialize};
+use std::sync::RwLock;
 use zaned_chart_core::Rgba;
 
 pub const DEFAULT_COLOR: Rgba = Rgba([255, 255, 255, 255]);
+
+/// Global default style that can be configured by the user.
+static USER_DEFAULT_STYLE: RwLock<Option<DrawingStyle>> = RwLock::new(None);
+
+/// Global database pool for async operations
+static DB_POOL: RwLock<Option<sqlx::SqlitePool>> = RwLock::new(None);
+
+/// Global runtime handle for async operations
+static RUNTIME_HANDLE: RwLock<Option<tokio::runtime::Handle>> = RwLock::new(None);
 
 /// Visual style for a committed drawing. Preview rendering does NOT read this
 /// — drafts use hard-coded faded constants because they have no committed
@@ -19,6 +29,14 @@ pub struct DrawingStyle {
 
 impl Default for DrawingStyle {
     fn default() -> Self {
+        // Check if user has set a custom default
+        if let Ok(guard) = USER_DEFAULT_STYLE.read() {
+            if let Some(user_default) = *guard {
+                return user_default;
+            }
+        }
+        
+        // Fall back to system default
         Self {
             color: DEFAULT_COLOR,
             width: 1.5,
@@ -119,6 +137,167 @@ fn paint_dashed_segment(
         painter.line_segment([start, end], stroke);
         t += period;
     }
+}
+
+/// Initialize the database pool and runtime handle for drawing defaults
+pub fn init_with_database(pool: sqlx::SqlitePool, runtime_handle: tokio::runtime::Handle) {
+    // Store pool and runtime handle
+    if let Ok(mut guard) = DB_POOL.write() {
+        *guard = Some(pool.clone());
+    }
+    if let Ok(mut guard) = RUNTIME_HANDLE.write() {
+        *guard = Some(runtime_handle.clone());
+    }
+    
+    // Load existing defaults from database
+    runtime_handle.spawn(async move {
+        match load_from_database(&pool).await {
+            Ok(Some(style)) => {
+                if let Ok(mut guard) = USER_DEFAULT_STYLE.write() {
+                    *guard = Some(style);
+                    println!("✓ Loaded drawing defaults from database");
+                }
+            }
+            Ok(None) => {
+                println!("No drawing defaults found in database, using system defaults");
+            }
+            Err(e) => {
+                eprintln!("Failed to load drawing defaults from database: {}", e);
+            }
+        }
+    });
+}
+
+/// Set the user's default drawing style. This will be persisted to the database.
+pub fn set_user_default(style: DrawingStyle) -> Result<(), String> {
+    // Update in-memory default
+    if let Ok(mut guard) = USER_DEFAULT_STYLE.write() {
+        *guard = Some(style);
+    } else {
+        return Err("Failed to acquire write lock".to_string());
+    }
+    
+    // Persist to database asynchronously
+    if let (Ok(pool_guard), Ok(handle_guard)) = (DB_POOL.read(), RUNTIME_HANDLE.read()) {
+        if let (Some(pool), Some(handle)) = (pool_guard.as_ref(), handle_guard.as_ref()) {
+            let pool_clone = pool.clone();
+            handle.spawn(async move {
+                if let Err(e) = save_drawing_defaults(&pool_clone, style).await {
+                    eprintln!("Failed to save drawing defaults to database: {}", e);
+                }
+            });
+        }
+    }
+    
+    Ok(())
+}
+
+/// Get the current user default style, or None if not set.
+pub fn get_user_default() -> Option<DrawingStyle> {
+    USER_DEFAULT_STYLE.read().ok().and_then(|guard| *guard)
+}
+
+/// Reset to system defaults.
+pub fn reset_to_system_default() -> Result<(), String> {
+    if let Ok(mut guard) = USER_DEFAULT_STYLE.write() {
+        *guard = None;
+    }
+    
+    // Delete from database
+    if let (Ok(pool_guard), Ok(handle_guard)) = (DB_POOL.read(), RUNTIME_HANDLE.read()) {
+        if let (Some(pool), Some(handle)) = (pool_guard.as_ref(), handle_guard.as_ref()) {
+            let pool_clone = pool.clone();
+            handle.spawn(async move {
+                if let Err(e) = delete_drawing_defaults(&pool_clone).await {
+                    eprintln!("Failed to delete drawing defaults from database: {}", e);
+                }
+            });
+        }
+    }
+    
+    Ok(())
+}
+
+async fn load_from_database(pool: &sqlx::SqlitePool) -> Result<Option<DrawingStyle>, String> {
+    let row: Option<(i64, i64, i64, i64, f64, String, f64, i64, i64)> = sqlx::query_as(
+        "SELECT color_r, color_g, color_b, color_a, width, dash, opacity, extend_left, extend_right 
+         FROM drawing_defaults WHERE id = 1"
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Database query failed: {}", e))?;
+    
+    if let Some((r, g, b, a, width, dash_str, opacity, extend_left, extend_right)) = row {
+        let dash = match dash_str.as_str() {
+            "Solid" => DashStyle::Solid,
+            "Dashed" => DashStyle::Dashed,
+            "Dotted" => DashStyle::Dotted,
+            _ => DashStyle::Solid,
+        };
+        
+        Ok(Some(DrawingStyle {
+            color: Rgba([r as u8, g as u8, b as u8, a as u8]),
+            width: width as f32,
+            dash,
+            opacity: opacity as f32,
+            extend_left: extend_left != 0,
+            extend_right: extend_right != 0,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Save drawing defaults to database
+async fn save_drawing_defaults(
+    pool: &sqlx::SqlitePool,
+    style: DrawingStyle,
+) -> Result<(), String> {
+    let dash_str = match style.dash {
+        DashStyle::Solid => "Solid",
+        DashStyle::Dashed => "Dashed",
+        DashStyle::Dotted => "Dotted",
+    };
+    
+    sqlx::query(
+        "INSERT INTO drawing_defaults (id, color_r, color_g, color_b, color_a, width, dash, opacity, extend_left, extend_right, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(id) DO UPDATE SET
+            color_r = excluded.color_r,
+            color_g = excluded.color_g,
+            color_b = excluded.color_b,
+            color_a = excluded.color_a,
+            width = excluded.width,
+            dash = excluded.dash,
+            opacity = excluded.opacity,
+            extend_left = excluded.extend_left,
+            extend_right = excluded.extend_right,
+            updated_at = CURRENT_TIMESTAMP"
+    )
+    .bind(style.color.0[0] as i64)
+    .bind(style.color.0[1] as i64)
+    .bind(style.color.0[2] as i64)
+    .bind(style.color.0[3] as i64)
+    .bind(style.width as f64)
+    .bind(dash_str)
+    .bind(style.opacity as f64)
+    .bind(if style.extend_left { 1 } else { 0 })
+    .bind(if style.extend_right { 1 } else { 0 })
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to save to database: {}", e))?;
+    
+    Ok(())
+}
+
+/// Delete drawing defaults from database
+async fn delete_drawing_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    sqlx::query("DELETE FROM drawing_defaults WHERE id = 1")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to delete from database: {}", e))?;
+    
+    Ok(())
 }
 
 #[cfg(test)]

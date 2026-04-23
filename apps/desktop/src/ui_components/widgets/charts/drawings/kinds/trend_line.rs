@@ -13,7 +13,7 @@ pub const ID: &str = "trend_line";
 pub const NAME: &str = "Trendline";
 pub const ICON: &str = egui_phosphor::regular::LINE_SEGMENT;
 
-const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 193, 7, 160);
+const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 160);
 const PREVIEW_WIDTH: f32 = 1.5;
 
 pub struct TrendLine;

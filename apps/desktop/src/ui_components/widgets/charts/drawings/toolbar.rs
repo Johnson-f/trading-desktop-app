@@ -16,6 +16,7 @@ pub enum ToolbarEvent {
     Clone,
     Delete,
     OpenSettings,
+    SetAsDefault,
 }
 
 const TOOLBAR_BG: Color32 = Color32::from_rgb(36, 36, 40);
@@ -27,7 +28,7 @@ const LOCK_ACTIVE: Color32 = Color32::from_rgb(255, 193, 7);
 const BUTTON_SIZE: Vec2 = Vec2::new(28.0, 28.0);
 const GRIP_WIDTH: f32 = 20.0;
 const TOOLBAR_HEIGHT: f32 = 32.0;
-const TOOLBAR_FULL_WIDTH: f32 = 330.0;
+const TOOLBAR_FULL_WIDTH: f32 = 252.0;
 const TOOLBAR_LOCKED_WIDTH: f32 = 80.0;
 const ANCHOR_GAP: f32 = 8.0;
 
@@ -187,7 +188,7 @@ pub fn show(
         .show(|ui| width_popup_body(ui, &mut drawing.style));
     cursor_x += BUTTON_SIZE.x;
 
-    // Clone / Gear / Lock / Trash
+    // Clone / Gear / Set Default / Lock / Trash
     if icon_btn(
         ui,
         &painter,
@@ -210,6 +211,19 @@ pub fn show(
         None,
     ) {
         event = ToolbarEvent::OpenSettings;
+    }
+    cursor_x += BUTTON_SIZE.x;
+    if icon_btn_with_tooltip(
+        ui,
+        &painter,
+        cursor_x,
+        rect.top(),
+        egui_phosphor::regular::FLOPPY_DISK,
+        ICON_COLOR,
+        None,
+        "Set as Default Style",
+    ) {
+        event = ToolbarEvent::SetAsDefault;
     }
     cursor_x += BUTTON_SIZE.x;
     if icon_btn(
@@ -318,6 +332,42 @@ fn icon_btn(
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+fn icon_btn_with_tooltip(
+    ui: &mut egui::Ui,
+    painter: &eframe::egui::Painter,
+    x: f32,
+    y: f32,
+    icon: &str,
+    idle: Color32,
+    active: Option<Color32>,
+    tooltip: &str,
+) -> bool {
+    let r = Rect::from_min_size(Pos2::new(x, y), BUTTON_SIZE);
+    let resp = ui.interact(
+        r,
+        ui.id().with(("drawing_toolbar_btn", x as i32)),
+        Sense::click(),
+    );
+    let color = if resp.hovered() {
+        ICON_HOVER
+    } else {
+        active.unwrap_or(idle)
+    };
+    painter.text(
+        r.center(),
+        egui::Align2::CENTER_CENTER,
+        icon,
+        egui::FontId::proportional(15.0),
+        color,
+    );
+    let clicked = resp.clicked();
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        resp.on_hover_text(tooltip);
+    }
+    clicked
 }
 
 fn color_popup_body(ui: &mut egui::Ui, style: &mut DrawingStyle) {

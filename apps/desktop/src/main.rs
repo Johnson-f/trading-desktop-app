@@ -5,7 +5,26 @@ use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
 use ui_components::widgets::charts::{CandleData, ChartWidget, JsonCandle};
 
-fn main() -> Result<(), eframe::Error> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize database
+    println!("Initializing database...");
+    let db = zaned_database::Database::init().await?;
+    println!("✓ Database initialized at: {}", db.path().display());
+    
+    if let Some(version) = db.get_schema_version().await? {
+        println!("✓ Schema version: {}", version);
+    }
+    
+    // Get database pool for the app
+    let db_pool = db.pool().clone();
+    
+    // Get tokio runtime handle for async operations
+    let runtime_handle = tokio::runtime::Handle::current();
+    
+    // Initialize drawing defaults with database
+    ui_components::widgets::charts::drawings::init_with_database(db_pool.clone(), runtime_handle.clone());
+    
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_titlebar_shown(false)
@@ -17,7 +36,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Zaned",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             cc.egui_ctx.set_fonts(fonts);
@@ -27,9 +46,13 @@ fn main() -> Result<(), eframe::Error> {
             visuals.window_fill = bg;
             visuals.faint_bg_color = bg;
             cc.egui_ctx.set_visuals(visuals);
-            Ok(Box::new(MyApp::default()))
+            
+            // Store database pool and runtime handle in the app
+            Ok(Box::new(MyApp::new(db_pool, runtime_handle)))
         }),
-    )
+    )?;
+    
+    Ok(())
 }
 
 struct MyApp {
@@ -38,10 +61,12 @@ struct MyApp {
     main_sidebar: MainSidebar,
     mini_sidebar: MiniSidebar,
     chart: Option<ChartWidget>,
+    db_pool: sqlx::SqlitePool,
+    runtime_handle: tokio::runtime::Handle,
 }
 
-impl Default for MyApp {
-    fn default() -> Self {
+impl MyApp {
+    fn new(db_pool: sqlx::SqlitePool, runtime_handle: tokio::runtime::Handle) -> Self {
         let mut chart = None;
         let json_str = std::fs::read_to_string("AAPL.json").unwrap_or_default();
         if !json_str.is_empty() {
@@ -59,6 +84,8 @@ impl Default for MyApp {
             main_sidebar: MainSidebar::default(),
             mini_sidebar: MiniSidebar::default(),
             chart,
+            db_pool,
+            runtime_handle,
         }
     }
 }

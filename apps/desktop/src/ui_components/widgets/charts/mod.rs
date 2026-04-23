@@ -2,7 +2,7 @@ mod camera;
 mod candle;
 mod controls;
 mod crosshair;
-mod drawings;
+pub mod drawings;
 mod gaps;
 mod grid;
 mod indicators;
@@ -53,6 +53,7 @@ pub struct ChartWidget {
     settings_modal: SettingsModal,
     drawings: DrawingsManager,
     drawing_settings_modal: DrawingSettingsModal,
+    notification: Option<(String, std::time::Instant)>,
 }
 
 impl ChartWidget {
@@ -79,6 +80,7 @@ impl ChartWidget {
             settings_modal: SettingsModal::default(),
             drawings: DrawingsManager::default(),
             drawing_settings_modal: DrawingSettingsModal::default(),
+            notification: None,
         }
     }
 
@@ -161,6 +163,9 @@ impl ChartWidget {
         self.drawing_settings_modal
             .show(ui.ctx(), &mut self.drawings, &self.data);
         self.paint_crosshair(ui, chart_rect, full_rect);
+        
+        // Render notification toast
+        self.paint_notification(ui, total_rect);
     }
 
     fn dispatch_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -701,6 +706,81 @@ impl ChartWidget {
                     self.drawing_settings_modal.open_for(d);
                 }
             }
+            ToolbarEvent::SetAsDefault => {
+                if let Some(d) = self.drawings.selected_drawing() {
+                    if let Err(e) = drawings::set_user_default_style(d.style) {
+                        eprintln!("Failed to save default style: {}", e);
+                        self.notification = Some((
+                            format!("✗ Failed to save: {}", e),
+                            std::time::Instant::now(),
+                        ));
+                    } else {
+                        self.notification = Some((
+                            "✓ Saved as default style".to_string(),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    
+    fn paint_notification(&mut self, ui: &egui::Ui, rect: egui::Rect) {
+        const NOTIFICATION_DURATION_SECS: f32 = 2.0;
+        
+        if let Some((message, start_time)) = &self.notification {
+            let elapsed = start_time.elapsed().as_secs_f32();
+            
+            if elapsed > NOTIFICATION_DURATION_SECS {
+                self.notification = None;
+                return;
+            }
+            
+            // Fade out in the last 0.5 seconds
+            let alpha = if elapsed > NOTIFICATION_DURATION_SECS - 0.5 {
+                ((NOTIFICATION_DURATION_SECS - elapsed) / 0.5).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            
+            let painter = ui.painter_at(rect);
+            let center = rect.center();
+            let text_pos = egui::Pos2::new(center.x, rect.top() + 60.0);
+            
+            // Determine color based on message type
+            let (bg_color, text_color) = if message.starts_with('✓') {
+                (
+                    egui::Color32::from_rgba_unmultiplied(78, 205, 196, (180.0 * alpha) as u8),
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, (255.0 * alpha) as u8),
+                )
+            } else {
+                (
+                    egui::Color32::from_rgba_unmultiplied(255, 107, 107, (180.0 * alpha) as u8),
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, (255.0 * alpha) as u8),
+                )
+            };
+            
+            // Measure text size
+            let font_id = egui::FontId::proportional(14.0);
+            let galley = painter.layout_no_wrap(message.clone(), font_id.clone(), text_color);
+            
+            // Draw background
+            let padding = egui::Vec2::new(12.0, 8.0);
+            let bg_rect = egui::Rect::from_center_size(
+                text_pos,
+                galley.size() + padding * 2.0,
+            );
+            painter.rect_filled(bg_rect, egui::Rounding::same(6), bg_color);
+            
+            // Draw text
+            painter.galley(
+                egui::Pos2::new(text_pos.x - galley.size().x / 2.0, text_pos.y - galley.size().y / 2.0),
+                galley,
+                text_color,
+            );
+            
+            // Request repaint for animation
+            ui.ctx().request_repaint();
         }
     }
 }

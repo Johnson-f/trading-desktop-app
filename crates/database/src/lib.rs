@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod client;
+mod migrations;
+mod error;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use client::Database;
+pub use error::{DatabaseError, Result};
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+/// Current schema version
+pub const CURRENT_SCHEMA_VERSION: &str = "0.01";
