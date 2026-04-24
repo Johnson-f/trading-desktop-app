@@ -15,7 +15,7 @@ pub const ICON: &str = egui_phosphor::regular::CHART_LINE_DOWN;
 
 const RATIOS: &[f32] = &[0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const LABEL_COLOR: Color32 = Color32::from_rgb(200, 200, 210);
-const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 193, 7, 140);
+const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 160);
 const PREVIEW_WIDTH: f32 = 1.0;
 
 pub struct FibRetracement;

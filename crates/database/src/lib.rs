@@ -1,9 +1,8 @@
 mod client;
-mod migrations;
 mod error;
+mod schema;
+pub mod operations;
 
 pub use client::Database;
 pub use error::{DatabaseError, Result};
-
-/// Current schema version
-pub const CURRENT_SCHEMA_VERSION: &str = "0.01";
+pub use schema::logic::SCHEMA_VERSION;

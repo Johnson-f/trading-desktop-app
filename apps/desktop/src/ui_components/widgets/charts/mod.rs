@@ -19,8 +19,8 @@ use camera::Camera;
 pub use candle::{CandleData, JsonCandle, Timeframe};
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
-    DrawingsManager, SelectionInput, ToolbarEvent, paint_handles, selection_step, show_toolbar,
-    toolbar_anchor_rect,
+    DrawingsManager, HIT_TOLERANCE_PX, SelectionInput, ToolbarEvent, paint_handles,
+    selection_step, show_toolbar, toolbar_anchor_rect,
 };
 use indicators::{self as ind, IndicatorManager, ParamValues};
 use interaction::InteractionState;
@@ -159,6 +159,7 @@ impl ChartWidget {
 
         self.settings_modal.show(ui.ctx(), &mut self.manager);
         self.paint_drawings(ui, chart_rect, full_rect);
+        self.paint_drawing_hover_tooltip(ui, chart_rect, full_rect);
         self.paint_drawing_selection(ui, chart_rect, full_rect);
         self.drawing_settings_modal
             .show(ui.ctx(), &mut self.drawings, &self.data);
@@ -549,6 +550,59 @@ impl ChartWidget {
     fn paint_crosshair(&self, ui: &egui::Ui, chart_rect: egui::Rect, full_rect: egui::Rect) {
         let camera = self.camera.lock();
         crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
+    }
+
+    /// Show an immediate (no-delay) tooltip naming the drawing under the cursor.
+    /// Suppressed while the user is placing a new drawing or dragging one, to
+    /// avoid visual noise during edits.
+    fn paint_drawing_hover_tooltip(
+        &self,
+        ui: &egui::Ui,
+        chart_rect: egui::Rect,
+        full_rect: egui::Rect,
+    ) {
+        if self.drawings.draft.is_some() {
+            return;
+        }
+        if !matches!(self.drawings.drag, drawings::SelectionDrag::None) {
+            return;
+        }
+        let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        if !chart_rect.contains(pointer) {
+            return;
+        }
+
+        let camera = self.camera.lock();
+        // Iterate in reverse so the most recently added drawing wins, matching
+        // the selection hit-test order.
+        for drawing in self.drawings.committed.iter().rev() {
+            let Some(tool) = self.drawings.tool_for(drawing.def_id) else {
+                continue;
+            };
+            if tool.hit_test(
+                chart_rect,
+                full_rect,
+                &camera,
+                &drawing.points,
+                pointer,
+                HIT_TOLERANCE_PX,
+            ) {
+                let label = tool.display_name().to_string();
+                egui::Tooltip::always_open(
+                    ui.ctx().clone(),
+                    ui.layer_id(),
+                    egui::Id::new(("drawing_hover_tooltip", drawing.id)),
+                    egui::PopupAnchor::Pointer,
+                )
+                .gap(12.0)
+                .show(|ui| {
+                    ui.label(label);
+                });
+                break;
+            }
+        }
     }
 
     fn handle_drawing_selection(

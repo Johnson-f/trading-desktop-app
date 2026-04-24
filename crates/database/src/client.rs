@@ -1,7 +1,7 @@
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::PathBuf;
 use crate::error::{DatabaseError, Result};
-use crate::migrations;
+use crate::schema;
 
 /// Main database client
 pub struct Database {
@@ -33,8 +33,8 @@ impl Database {
             println!("Creating new database at: {}", db_path.display());
         }
         
-        // Run migrations
-        migrations::run_migrations(&pool).await?;
+        // Run declarative schema migration
+        schema::migrate(&pool).await?;
         
         Ok(Self { pool, db_path })
     }
@@ -75,9 +75,9 @@ impl Database {
         &self.db_path
     }
     
-    /// Get the current schema version
+    /// Get the currently applied schema version
     pub async fn get_schema_version(&self) -> Result<Option<String>> {
-        migrations::get_current_version(&self.pool).await
+        schema::logic::get_applied_version(&self.pool).await
     }
     
     /// Close the database connection

@@ -13,7 +13,7 @@ pub const ID: &str = "extended";
 pub const NAME: &str = "Extended";
 pub const ICON: &str = egui_phosphor::regular::LINE_SEGMENTS;
 
-const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 193, 7, 120);
+const PREVIEW_COLOR: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 160);
 const PREVIEW_WIDTH: f32 = 1.5;
 
 pub struct Extended;

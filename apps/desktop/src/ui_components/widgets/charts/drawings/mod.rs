@@ -18,7 +18,7 @@ pub use style::{
     reset_to_system_default, init_with_database
 };
 pub use toolbar::{ToolbarEvent, anchor_rect_for as toolbar_anchor_rect, show as show_toolbar};
-pub use trait_def::{CommittedDrawing, ExtendCapabilities, InputResult, WorldPoint};
+pub use trait_def::{CommittedDrawing, ExtendCapabilities, HIT_TOLERANCE_PX, InputResult, WorldPoint};
 
 // Convenience alias for setting user default style
 pub fn set_user_default_style(style: DrawingStyle) -> Result<(), String> {
