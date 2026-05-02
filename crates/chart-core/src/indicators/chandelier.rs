@@ -1,6 +1,6 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::ChandelierExit as TaChandelier;
-use super::util::build_data_items;
 
 /// Returns two series: (long_exit, short_exit).
 pub fn compute_chandelier(
@@ -52,7 +52,12 @@ mod tests {
         // At least the last value should have long < short (normal CE behavior)
         let last_long = long.last().and_then(|v| *v).unwrap();
         let last_short = short.last().and_then(|v| *v).unwrap();
-        assert!(last_long < last_short, "long={} short={}", last_long, last_short);
+        assert!(
+            last_long < last_short,
+            "long={} short={}",
+            last_long,
+            last_short
+        );
     }
 
     #[test]

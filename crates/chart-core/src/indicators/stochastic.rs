@@ -1,6 +1,6 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::{ExponentialMovingAverage, FastStochastic};
-use super::util::build_data_items;
 
 /// Returns two series: (%K, %D).
 ///

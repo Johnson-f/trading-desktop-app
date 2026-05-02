@@ -54,7 +54,11 @@ impl Indicator for Bollinger {
         ID
     }
     fn display_name(&self, params: &ParamValues) -> String {
-        format!("BB({}, {})", params.int("period"), params.float("multiplier"))
+        format!(
+            "BB({}, {})",
+            params.int("period"),
+            params.float("multiplier")
+        )
     }
     fn target(&self) -> RenderTarget {
         RenderTarget::MainOverlay

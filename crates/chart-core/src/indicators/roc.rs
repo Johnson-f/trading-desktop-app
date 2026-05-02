@@ -5,7 +5,10 @@ pub fn compute_roc(closes: &[f32], period: usize) -> Vec<Option<f32>> {
     let Ok(mut roc) = TaRoc::new(period) else {
         return vec![None; closes.len()];
     };
-    closes.iter().map(|c| Some(roc.next(*c as f64) as f32)).collect()
+    closes
+        .iter()
+        .map(|c| Some(roc.next(*c as f64) as f32))
+        .collect()
 }
 
 #[cfg(test)]

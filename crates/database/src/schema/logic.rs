@@ -1,8 +1,8 @@
 use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
-use crate::error::{DatabaseError, Result};
 use super::tables::SCHEMA_SQL;
+use crate::error::{DatabaseError, Result};
 
 /// Bump this when you change SCHEMA_SQL and want the diff re-applied.
 pub const SCHEMA_VERSION: &str = "0.1";
@@ -41,9 +41,12 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
             sqlx::query(&format!("ALTER TABLE \"{}\" RENAME TO \"{}\"", old, new))
                 .execute(pool)
                 .await
-                .map_err(|e| DatabaseError::Migration(format!(
-                    "Failed to rename table {} -> {}: {}", old, new, e
-                )))?;
+                .map_err(|e| {
+                    DatabaseError::Migration(format!(
+                        "Failed to rename table {} -> {}: {}",
+                        old, new, e
+                    ))
+                })?;
         }
     }
 
@@ -57,9 +60,12 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
             ))
             .execute(pool)
             .await
-            .map_err(|e| DatabaseError::Migration(format!(
-                "Failed to rename column {}.{} -> {}: {}", table, old_col, new_col, e
-            )))?;
+            .map_err(|e| {
+                DatabaseError::Migration(format!(
+                    "Failed to rename column {}.{} -> {}: {}",
+                    table, old_col, new_col, e
+                ))
+            })?;
         }
     }
 
@@ -112,7 +118,8 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
                     println!("Adding column: {}.{}", table_name, col.name);
                     sqlx::query(&sql).execute(pool).await.map_err(|e| {
                         DatabaseError::Migration(format!(
-                            "Failed to add column {}.{}: {}", table_name, col.name, e
+                            "Failed to add column {}.{}: {}",
+                            table_name, col.name, e
                         ))
                     })?;
                 }
@@ -141,10 +148,12 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
                     );
                     rebuild_table_without_columns(pool, table_name, &[col_name], desired_cols)
                         .await
-                        .map_err(|e| DatabaseError::Migration(format!(
-                            "Failed to rebuild table {} to drop column {}: {}",
-                            table_name, col_name, e
-                        )))?;
+                        .map_err(|e| {
+                            DatabaseError::Migration(format!(
+                                "Failed to rebuild table {} to drop column {}: {}",
+                                table_name, col_name, e
+                            ))
+                        })?;
                     break; // rebuild handles all drops at once
                 }
             }
@@ -193,7 +202,7 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
 /// Get the currently applied schema version, or None if never migrated.
 pub async fn get_applied_version(pool: &SqlitePool) -> Result<Option<String>> {
     let table_exists: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='_schema_version'"
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='_schema_version'",
     )
     .fetch_one(pool)
     .await?;
@@ -202,11 +211,10 @@ pub async fn get_applied_version(pool: &SqlitePool) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let version: Option<String> = sqlx::query_scalar(
-        "SELECT version FROM _schema_version WHERE id = 1"
-    )
-    .fetch_optional(pool)
-    .await?;
+    let version: Option<String> =
+        sqlx::query_scalar("SELECT version FROM _schema_version WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
 
     Ok(version)
 }
@@ -243,12 +251,11 @@ struct ColumnInfo {
 }
 
 async fn table_exists(pool: &SqlitePool, table: &str) -> Result<bool> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?"
-    )
-    .bind(table)
-    .fetch_one(pool)
-    .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?")
+            .bind(table)
+            .fetch_one(pool)
+            .await?;
     Ok(exists)
 }
 
@@ -304,11 +311,10 @@ async fn get_live_index_names(pool: &SqlitePool) -> Result<HashSet<String>> {
 }
 
 async fn get_live_trigger_names(pool: &SqlitePool) -> Result<HashSet<String>> {
-    let names: Vec<String> = sqlx::query_scalar(
-        "SELECT name FROM sqlite_master WHERE type='trigger'",
-    )
-    .fetch_all(pool)
-    .await?;
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type='trigger'")
+            .fetch_all(pool)
+            .await?;
     Ok(names.into_iter().collect())
 }
 
@@ -730,7 +736,10 @@ END;
 
     #[test]
     fn extract_table_name_works_with_if_not_exists() {
-        assert_eq!(extract_table_name("CREATE TABLE IF NOT EXISTS foo ("), "foo");
+        assert_eq!(
+            extract_table_name("CREATE TABLE IF NOT EXISTS foo ("),
+            "foo"
+        );
         assert_eq!(extract_table_name("CREATE TABLE bar (id INTEGER)"), "bar");
     }
 }

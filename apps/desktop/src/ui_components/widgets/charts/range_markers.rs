@@ -37,15 +37,11 @@ pub fn paint(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData
     let painter = ui.painter_at(chart_rect);
     let font = FontId::proportional(10.0);
 
-    let x_h = chart_rect.left()
-        + ((max_high_idx as f64 - camera.x_offset) * camera.x_scale) as f32;
-    let y_h = chart_rect.bottom()
-        - ((max_high as f64 - camera.y_offset) * camera.y_scale) as f32;
+    let x_h = chart_rect.left() + ((max_high_idx as f64 - camera.x_offset) * camera.x_scale) as f32;
+    let y_h = chart_rect.bottom() - ((max_high as f64 - camera.y_offset) * camera.y_scale) as f32;
 
-    let x_l = chart_rect.left()
-        + ((min_low_idx as f64 - camera.x_offset) * camera.x_scale) as f32;
-    let y_l = chart_rect.bottom()
-        - ((min_low as f64 - camera.y_offset) * camera.y_scale) as f32;
+    let x_l = chart_rect.left() + ((min_low_idx as f64 - camera.x_offset) * camera.x_scale) as f32;
+    let y_l = chart_rect.bottom() - ((min_low as f64 - camera.y_offset) * camera.y_scale) as f32;
 
     if chart_rect.x_range().contains(x_h) && chart_rect.y_range().contains(y_h) {
         painter.text(

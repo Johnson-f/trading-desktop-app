@@ -10,25 +10,37 @@ pub fn compute_ichimoku(
     tenkan_period: usize,
     kijun_period: usize,
     senkou_b_period: usize,
-) -> (Vec<Option<f32>>, Vec<Option<f32>>, Vec<Option<f32>>, Vec<Option<f32>>, Vec<Option<f32>>) {
+) -> (
+    Vec<Option<f32>>,
+    Vec<Option<f32>>,
+    Vec<Option<f32>>,
+    Vec<Option<f32>>,
+    Vec<Option<f32>>,
+) {
     let n = highs.len().min(lows.len()).min(closes.len());
     let displacement = kijun_period;
 
     let th = rolling_high(highs, tenkan_period);
     let tl = rolling_low(lows, tenkan_period);
-    let tenkan: Vec<Option<f32>> = th.iter().zip(tl.iter())
+    let tenkan: Vec<Option<f32>> = th
+        .iter()
+        .zip(tl.iter())
         .map(|(h, l)| match (h, l) {
             (Some(hv), Some(lv)) => Some((hv + lv) / 2.0),
             _ => None,
-        }).collect();
+        })
+        .collect();
 
     let kh = rolling_high(highs, kijun_period);
     let kl = rolling_low(lows, kijun_period);
-    let kijun: Vec<Option<f32>> = kh.iter().zip(kl.iter())
+    let kijun: Vec<Option<f32>> = kh
+        .iter()
+        .zip(kl.iter())
         .map(|(h, l)| match (h, l) {
             (Some(hv), Some(lv)) => Some((hv + lv) / 2.0),
             _ => None,
-        }).collect();
+        })
+        .collect();
 
     // Senkou A: (tenkan + kijun) / 2, displaced forward
     let total_len = n + displacement;
@@ -83,8 +95,7 @@ mod tests {
         let highs = vec![10.0f32; 60];
         let lows = vec![5.0f32; 60];
         let closes = vec![7.0f32; 60];
-        let (_, _, senkou_a, senkou_b, _) =
-            compute_ichimoku(&highs, &lows, &closes, 9, 26, 52);
+        let (_, _, senkou_a, senkou_b, _) = compute_ichimoku(&highs, &lows, &closes, 9, 26, 52);
         assert!(senkou_a.len() > 60);
         assert!(senkou_b.len() > 60);
         assert_eq!(senkou_a.len(), 86);
@@ -96,8 +107,7 @@ mod tests {
         let highs: Vec<f32> = (1..=20).map(|x| x as f32 + 5.0).collect();
         let lows: Vec<f32> = (1..=20).map(|x| x as f32).collect();
         let closes: Vec<f32> = (1..=20).map(|x| x as f32 + 2.5).collect();
-        let (tenkan, kijun, _, _, _) =
-            compute_ichimoku(&highs, &lows, &closes, 3, 9, 26);
+        let (tenkan, kijun, _, _, _) = compute_ichimoku(&highs, &lows, &closes, 3, 9, 26);
         // tenkan becomes Some after period-1 = 2 bars
         assert!(tenkan[1].is_none());
         assert!(tenkan[2].is_some());

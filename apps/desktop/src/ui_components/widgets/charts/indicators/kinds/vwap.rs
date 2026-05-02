@@ -14,15 +14,13 @@ pub const NAME: &str = "VWAP";
 pub const LIKES: u32 = 18234;
 
 pub static SCHEMA: ParamSchema = ParamSchema {
-    fields: &[
-        ParamField {
-            key: "color",
-            label: "Color",
-            kind: ParamKind::Color {
-                default: Rgba::from_rgb(255, 235, 59),
-            },
+    fields: &[ParamField {
+        key: "color",
+        label: "Color",
+        kind: ParamKind::Color {
+            default: Rgba::from_rgb(255, 235, 59),
         },
-    ],
+    }],
 };
 
 pub struct Vwap;
@@ -45,7 +43,12 @@ impl Indicator for Vwap {
     }
 
     fn inputs(&self, _params: &ParamValues) -> Vec<InputSpec> {
-        vec![InputSpec::Highs, InputSpec::Lows, InputSpec::Closes, InputSpec::Volumes]
+        vec![
+            InputSpec::Highs,
+            InputSpec::Lows,
+            InputSpec::Closes,
+            InputSpec::Volumes,
+        ]
     }
 
     fn compute(&self, _inputs: &[&[f32]], _params: &ParamValues) -> ComputedSeries {

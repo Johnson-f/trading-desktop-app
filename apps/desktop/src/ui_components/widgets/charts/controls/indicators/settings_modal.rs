@@ -223,7 +223,11 @@ impl SettingsModal {
     }
 }
 
-fn draw_inputs(ui: &mut egui::Ui, schema: indicators::ParamSchema, draft: &mut ParamValues) -> bool {
+fn draw_inputs(
+    ui: &mut egui::Ui,
+    schema: indicators::ParamSchema,
+    draft: &mut ParamValues,
+) -> bool {
     let fields: Vec<_> = schema
         .fields
         .iter()

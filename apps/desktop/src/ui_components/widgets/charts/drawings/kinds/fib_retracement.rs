@@ -3,6 +3,7 @@ use kurbo::{BezPath, Point};
 
 use super::super::super::camera::Camera;
 use super::super::hit_test::hit_shape;
+use super::super::kind_style::KindStyle;
 use super::super::style::{DrawingStyle, style_color};
 use super::super::trait_def::{
     DrawingDraft, DrawingTool, InputResult, WorldPoint, world_to_screen,
@@ -53,6 +54,7 @@ impl DrawingTool for FibRetracement {
         camera: &Camera,
         points: &[WorldPoint],
         style: &DrawingStyle,
+        kind_style: &KindStyle,
     ) {
         let Some(levels) = level_screen_ys(chart_rect, camera, points) else {
             return;
@@ -61,7 +63,13 @@ impl DrawingTool for FibRetracement {
         let color = style_color(style.color, style.opacity);
         let stroke = Stroke::new(style.width, color);
         let font = FontId::monospace(10.0);
-        for (ratio, price, y) in levels {
+        let show_labels = matches!(kind_style, KindStyle::Fib { show_labels, .. } if *show_labels)
+            || !matches!(kind_style, KindStyle::Fib { .. });
+        for (idx, (ratio, price, y)) in levels.iter().enumerate() {
+            if !kind_style.fib_ratio_enabled(idx) {
+                continue;
+            }
+            let y = *y;
             if y < chart_rect.top() || y > chart_rect.bottom() {
                 continue;
             }
@@ -72,13 +80,15 @@ impl DrawingTool for FibRetracement {
                 ],
                 stroke,
             );
-            painter.text(
-                Pos2::new(chart_rect.left() + 4.0, y - 2.0),
-                Align2::LEFT_BOTTOM,
-                format!("{:.3}  {:.2}", ratio, price),
-                font.clone(),
-                LABEL_COLOR,
-            );
+            if show_labels {
+                painter.text(
+                    Pos2::new(chart_rect.left() + 4.0, y - 2.0),
+                    Align2::LEFT_BOTTOM,
+                    format!("{:.3}  {:.2}", ratio, price),
+                    font.clone(),
+                    LABEL_COLOR,
+                );
+            }
         }
     }
 
@@ -165,6 +175,10 @@ impl DrawingTool for FibRetracement {
             Pos2::new(chart_rect.right(), bottom),
         )
     }
+
+    fn default_kind_style(&self) -> KindStyle {
+        KindStyle::DEFAULT_FIB
+    }
 }
 
 /// Return `(ratio, price, screen_y)` for each Fibonacci level between the two
@@ -188,8 +202,8 @@ fn level_screen_ys(
         .iter()
         .map(|&ratio| {
             let price = lo + ratio * range;
-            let y = chart_rect.bottom()
-                - ((price as f64 - camera.y_offset) * camera.y_scale) as f32;
+            let y =
+                chart_rect.bottom() - ((price as f64 - camera.y_offset) * camera.y_scale) as f32;
             (ratio, price, y)
         })
         .collect();
@@ -232,21 +246,42 @@ mod tests {
     fn hit_test_lands_on_zero_level() {
         let t = FibRetracement;
         // 0% ratio sits at price=2 → screen y = 100 - 20 = 80.
-        assert!(t.hit_test(rect(), rect(), &test_camera(), &pts(), Pos2::new(50.0, 80.0), 4.0));
+        assert!(t.hit_test(
+            rect(),
+            rect(),
+            &test_camera(),
+            &pts(),
+            Pos2::new(50.0, 80.0),
+            4.0
+        ));
     }
 
     #[test]
     fn hit_test_lands_on_full_level() {
         let t = FibRetracement;
         // 100% ratio sits at price=8 → screen y = 100 - 80 = 20.
-        assert!(t.hit_test(rect(), rect(), &test_camera(), &pts(), Pos2::new(50.0, 20.0), 4.0));
+        assert!(t.hit_test(
+            rect(),
+            rect(),
+            &test_camera(),
+            &pts(),
+            Pos2::new(50.0, 20.0),
+            4.0
+        ));
     }
 
     #[test]
     fn hit_test_lands_on_half_level() {
         let t = FibRetracement;
         // 50% ratio sits at price=5 → screen y = 100 - 50 = 50.
-        assert!(t.hit_test(rect(), rect(), &test_camera(), &pts(), Pos2::new(50.0, 50.0), 4.0));
+        assert!(t.hit_test(
+            rect(),
+            rect(),
+            &test_camera(),
+            &pts(),
+            Pos2::new(50.0, 50.0),
+            4.0
+        ));
     }
 
     #[test]
@@ -254,7 +289,14 @@ mod tests {
         let t = FibRetracement;
         // Between 23.6% (y≈65.84) and 0% (y=80) — gap of ~14 screen pixels.
         // At y=73 the nearest level is ~7px away, well outside tolerance=2.
-        assert!(!t.hit_test(rect(), rect(), &test_camera(), &pts(), Pos2::new(50.0, 73.0), 2.0));
+        assert!(!t.hit_test(
+            rect(),
+            rect(),
+            &test_camera(),
+            &pts(),
+            Pos2::new(50.0, 73.0),
+            2.0
+        ));
     }
 
     #[test]

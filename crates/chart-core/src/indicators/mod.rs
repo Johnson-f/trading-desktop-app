@@ -21,11 +21,11 @@ mod rsi;
 mod sma;
 mod stochastic;
 mod supertrend;
+pub mod util;
 mod vma;
 mod vwap;
 mod williams_r;
 mod wma;
-pub mod util;
 
 pub use adx::compute_adx;
 pub use alma::compute_alma;

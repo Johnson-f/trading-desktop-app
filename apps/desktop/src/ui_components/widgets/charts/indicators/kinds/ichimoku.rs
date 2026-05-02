@@ -115,8 +115,14 @@ impl Indicator for Ichimoku {
         let tenkan_period = params.int("tenkan").max(1) as usize;
         let kijun_period = params.int("kijun").max(1) as usize;
         let senkou_b_period = params.int("senkou_b").max(1) as usize;
-        let (tenkan, kijun, senkou_a, senkou_b, chikou) =
-            compute_ichimoku(highs, lows, closes, tenkan_period, kijun_period, senkou_b_period);
+        let (tenkan, kijun, senkou_a, senkou_b, chikou) = compute_ichimoku(
+            highs,
+            lows,
+            closes,
+            tenkan_period,
+            kijun_period,
+            senkou_b_period,
+        );
         let mut out = ComputedSeries::default();
         out.series.insert("tenkan", tenkan);
         out.series.insert("kijun", kijun);
@@ -142,10 +148,16 @@ impl Indicator for Ichimoku {
         let cloud_down_color = egui_color(params.color("cloud_down_color"));
 
         let cloud_up_fill = Color32::from_rgba_premultiplied(
-            cloud_up_color.r(), cloud_up_color.g(), cloud_up_color.b(), 30,
+            cloud_up_color.r(),
+            cloud_up_color.g(),
+            cloud_up_color.b(),
+            30,
         );
         let cloud_down_fill = Color32::from_rgba_premultiplied(
-            cloud_down_color.r(), cloud_down_color.g(), cloud_down_color.b(), 30,
+            cloud_down_color.r(),
+            cloud_down_color.g(),
+            cloud_down_color.b(),
+            30,
         );
 
         let to_screen = |i: usize, y: f32| -> Pos2 {
@@ -183,7 +195,11 @@ impl Indicator for Ichimoku {
                             } else if a_above != seg_up_dominates {
                                 // Flush current segment
                                 if upper_pts.len() >= 2 {
-                                    let fill = if seg_up_dominates { cloud_up_fill } else { cloud_down_fill };
+                                    let fill = if seg_up_dominates {
+                                        cloud_up_fill
+                                    } else {
+                                        cloud_down_fill
+                                    };
                                     let mut polygon = upper_pts.clone();
                                     polygon.extend(lower_pts.iter().rev());
                                     painter.add(Shape::convex_polygon(polygon, fill, Stroke::NONE));
@@ -210,7 +226,11 @@ impl Indicator for Ichimoku {
                 }
 
                 if upper_pts.len() >= 2 {
-                    let fill = if seg_up_dominates { cloud_up_fill } else { cloud_down_fill };
+                    let fill = if seg_up_dominates {
+                        cloud_up_fill
+                    } else {
+                        cloud_down_fill
+                    };
                     let mut polygon = upper_pts.clone();
                     polygon.extend(lower_pts.iter().rev());
                     painter.add(Shape::convex_polygon(polygon, fill, Stroke::NONE));
@@ -225,9 +245,25 @@ impl Indicator for Ichimoku {
         // Draw chikou line (purple)
         draw_line(painter, rect, camera, computed, "chikou", chikou_color, 1.0);
         // Draw senkou_a as thin line
-        draw_line(painter, rect, camera, computed, "senkou_a", cloud_up_color, 1.0);
+        draw_line(
+            painter,
+            rect,
+            camera,
+            computed,
+            "senkou_a",
+            cloud_up_color,
+            1.0,
+        );
         // Draw senkou_b as thin line
-        draw_line(painter, rect, camera, computed, "senkou_b", cloud_down_color, 1.0);
+        draw_line(
+            painter,
+            rect,
+            camera,
+            computed,
+            "senkou_b",
+            cloud_down_color,
+            1.0,
+        );
     }
 
     fn legend(
@@ -275,7 +311,9 @@ fn draw_line(
     color: Color32,
     width: f32,
 ) {
-    let Some(series) = computed.series.get(key) else { return };
+    let Some(series) = computed.series.get(key) else {
+        return;
+    };
     let mut current: Vec<Pos2> = Vec::with_capacity(series.len());
     for (i, v) in series.iter().enumerate() {
         match v {
@@ -284,7 +322,10 @@ fn draw_line(
                 let x = rect.left() + x_pixel;
                 if x < rect.left() - 50.0 || x > rect.right() + 50.0 {
                     if !current.is_empty() {
-                        painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(width, color)));
+                        painter.add(Shape::line(
+                            std::mem::take(&mut current),
+                            Stroke::new(width, color),
+                        ));
                     }
                     continue;
                 }
@@ -294,7 +335,10 @@ fn draw_line(
             }
             None => {
                 if !current.is_empty() {
-                    painter.add(Shape::line(std::mem::take(&mut current), Stroke::new(width, color)));
+                    painter.add(Shape::line(
+                        std::mem::take(&mut current),
+                        Stroke::new(width, color),
+                    ));
                 }
             }
         }

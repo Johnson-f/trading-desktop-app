@@ -36,7 +36,10 @@ mod tests {
         let closes: Vec<f32> = (1..=30).map(|i| i as f32).collect();
         let rsi = compute_rsi(&closes, 14);
         let last = rsi.last().copied().flatten().unwrap();
-        assert!(last > 90.0, "expected RSI > 90 on pure-gains series, got {last}");
+        assert!(
+            last > 90.0,
+            "expected RSI > 90 on pure-gains series, got {last}"
+        );
         assert!(last <= 100.0);
     }
 

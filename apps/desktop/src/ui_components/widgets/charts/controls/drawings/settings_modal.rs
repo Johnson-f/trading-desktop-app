@@ -3,9 +3,9 @@ use eframe::egui::{self, Color32, CornerRadius, DragValue, Pos2, Sense, Stroke, 
 use super::super::super::CandleData;
 use super::super::super::drawings::{
     COLOR_PALETTE, CommittedDrawing, DashStyle, DrawingStyle, DrawingsManager, ExtendCapabilities,
-    WorldPoint,
+    FIB_RATIO_COUNT, KindStyle, WorldPoint,
 };
-use super::super::super::util::egui_color;
+use super::super::super::util::{core_color, egui_color};
 
 const VERTICAL_LINE_ID: &str = "vertical_line";
 
@@ -37,6 +37,7 @@ pub struct DrawingSettingsModal {
     pub open: bool,
     pub drawing_id: Option<u64>,
     draft_style: DrawingStyle,
+    draft_kind_style: KindStyle,
     draft_points: Vec<WorldPointEdit>,
     active_tab: Tab,
 }
@@ -53,6 +54,7 @@ impl Default for DrawingSettingsModal {
             open: false,
             drawing_id: None,
             draft_style: DrawingStyle::default(),
+            draft_kind_style: KindStyle::None,
             draft_points: Vec::new(),
             active_tab: Tab::Style,
         }
@@ -64,6 +66,7 @@ impl DrawingSettingsModal {
         self.open = true;
         self.drawing_id = Some(drawing.id);
         self.draft_style = drawing.style;
+        self.draft_kind_style = drawing.kind_style;
         self.draft_points = drawing
             .points
             .iter()
@@ -75,12 +78,7 @@ impl DrawingSettingsModal {
         self.active_tab = Tab::Style;
     }
 
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        manager: &mut DrawingsManager,
-        data: &CandleData,
-    ) {
+    pub fn show(&mut self, ctx: &egui::Context, manager: &mut DrawingsManager, data: &CandleData) {
         if !self.open {
             return;
         }
@@ -107,8 +105,12 @@ impl DrawingSettingsModal {
             .map(|t| t.display_name().to_string())
             .unwrap_or_else(|| "Drawing".to_string());
         let extend_caps = tool
+            .as_ref()
             .map(|t| t.extend_capabilities())
             .unwrap_or_default();
+        let default_kind_style = tool
+            .map(|t| t.default_kind_style())
+            .unwrap_or(KindStyle::None);
 
         let modal_size = Vec2::new(MODAL_WIDTH, MODAL_HEIGHT);
         let mut should_close = false;
@@ -149,11 +151,14 @@ impl DrawingSettingsModal {
                     );
                 });
 
-                let position_tab_label = if def_id == VERTICAL_LINE_ID { "Date" } else { "Price" };
+                let position_tab_label = if def_id == VERTICAL_LINE_ID {
+                    "Date"
+                } else {
+                    "Price"
+                };
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    for (tab, label) in
-                        [(Tab::Style, "Style"), (Tab::Position, position_tab_label)]
+                    for (tab, label) in [(Tab::Style, "Style"), (Tab::Position, position_tab_label)]
                     {
                         let resp = ui.selectable_label(self.active_tab == tab, label);
                         if resp.clicked() {
@@ -185,10 +190,7 @@ impl DrawingSettingsModal {
                         .corner_radius(CornerRadius::same(6))
                         .inner_margin(egui::Margin::same(16))
                         .show(ui, |ui| {
-                            ui.set_min_size(Vec2::new(
-                                ui.available_width(),
-                                content_height - 4.0,
-                            ));
+                            ui.set_min_size(Vec2::new(ui.available_width(), content_height - 4.0));
                             match self.active_tab {
                                 Tab::Style => {
                                     changed |= self.draw_style_tab(ui, extend_caps);
@@ -216,6 +218,7 @@ impl DrawingSettingsModal {
 
         if should_reset {
             self.draft_style = DrawingStyle::default();
+            self.draft_kind_style = default_kind_style;
             if let Some(d) = manager.committed.iter().find(|d| d.id == drawing_id) {
                 self.draft_points = d
                     .points
@@ -231,6 +234,7 @@ impl DrawingSettingsModal {
         if changed {
             if let Some(d) = manager.committed.iter_mut().find(|d| d.id == drawing_id) {
                 d.style = self.draft_style;
+                d.kind_style = self.draft_kind_style;
                 d.points = self
                     .draft_points
                     .iter()
@@ -324,15 +328,149 @@ impl DrawingSettingsModal {
                 changed = true;
             }
         }
+
+        changed |= self.draw_kind_style(ui);
         changed
     }
 
-    fn draw_position_tab(
-        &mut self,
-        ui: &mut egui::Ui,
-        def_id: &str,
-        data: &CandleData,
-    ) -> bool {
+    /// Draw the appearance widgets specific to the current drawing's
+    /// `KindStyle` variant. Each branch owns its own layout so adding new
+    /// variants doesn't ripple into the base style code above.
+    fn draw_kind_style(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        match &mut self.draft_kind_style {
+            KindStyle::None => {}
+            KindStyle::FilledRect {
+                fill_enabled,
+                fill_alpha,
+            } => {
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Fill").color(TEXT_MUTED).size(11.0));
+                if ui.checkbox(fill_enabled, "Enable fill").changed() {
+                    changed = true;
+                }
+                if *fill_enabled {
+                    let mut a = *fill_alpha as f32;
+                    if ui
+                        .add(egui::Slider::new(&mut a, 0.0..=255.0).text("alpha"))
+                        .changed()
+                    {
+                        *fill_alpha = a as u8;
+                        changed = true;
+                    }
+                }
+            }
+            KindStyle::Pitchfork {
+                fill_enabled,
+                fill_alpha,
+            } => {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("Tine fill")
+                        .color(TEXT_MUTED)
+                        .size(11.0),
+                );
+                if ui.checkbox(fill_enabled, "Shade between outer tines").changed() {
+                    changed = true;
+                }
+                if *fill_enabled {
+                    let mut a = *fill_alpha as f32;
+                    if ui
+                        .add(egui::Slider::new(&mut a, 0.0..=255.0).text("alpha"))
+                        .changed()
+                    {
+                        *fill_alpha = a as u8;
+                        changed = true;
+                    }
+                }
+            }
+            KindStyle::Fib {
+                ratios_mask,
+                show_labels,
+            } => {
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Levels").color(TEXT_MUTED).size(11.0));
+                ui.horizontal_wrapped(|ui| {
+                    const RATIOS: [f32; FIB_RATIO_COUNT] =
+                        [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+                    for (i, r) in RATIOS.iter().enumerate() {
+                        let mut on = (*ratios_mask >> i) & 1 == 1;
+                        if ui
+                            .checkbox(&mut on, format!("{:.3}", r))
+                            .changed()
+                        {
+                            let bit = 1u8 << i;
+                            if on {
+                                *ratios_mask |= bit;
+                            } else {
+                                *ratios_mask &= !bit;
+                            }
+                            changed = true;
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+                if ui.checkbox(show_labels, "Show ratio labels").changed() {
+                    changed = true;
+                }
+            }
+            KindStyle::Position {
+                profit_color,
+                loss_color,
+                entry_color,
+                show_label,
+            } => {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("Zone colors")
+                        .color(TEXT_MUTED)
+                        .size(11.0),
+                );
+                let mut row = |ui: &mut egui::Ui,
+                               label: &str,
+                               color: &mut zaned_chart_core::Rgba|
+                 -> bool {
+                    let mut inner_changed = false;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(label)
+                                .color(TEXT_WHITE)
+                                .size(12.0),
+                        );
+                        let mut c = egui_color(*color);
+                        if egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            &mut c,
+                            egui::color_picker::Alpha::Opaque,
+                        )
+                        .changed()
+                        {
+                            *color = core_color(c);
+                            inner_changed = true;
+                        }
+                    });
+                    inner_changed
+                };
+                changed |= row(ui, "Profit", profit_color);
+                changed |= row(ui, "Loss", loss_color);
+                changed |= row(ui, "Entry", entry_color);
+                ui.add_space(8.0);
+                if ui.checkbox(show_label, "Show R:R label").changed() {
+                    changed = true;
+                }
+            }
+            KindStyle::LabeledRect { show_label } => {
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Label").color(TEXT_MUTED).size(11.0));
+                if ui.checkbox(show_label, "Show measurement label").changed() {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    fn draw_position_tab(&mut self, ui: &mut egui::Ui, def_id: &str, data: &CandleData) -> bool {
         let is_vertical = def_id == VERTICAL_LINE_ID;
         let multi = self.draft_points.len() > 1;
         let label_col_width = 80.0;
@@ -348,10 +486,8 @@ impl DrawingSettingsModal {
                 } else {
                     "Position".to_string()
                 };
-                let (label_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(label_col_width, 28.0),
-                    Sense::hover(),
-                );
+                let (label_rect, _) =
+                    ui.allocate_exact_size(Vec2::new(label_col_width, 28.0), Sense::hover());
                 ui.painter().text(
                     egui::Pos2::new(label_rect.left(), label_rect.center().y),
                     egui::Align2::LEFT_CENTER,
@@ -363,10 +499,7 @@ impl DrawingSettingsModal {
                 if is_vertical {
                     let date = date_for_index(data, p.index);
                     ui.painter().text(
-                        egui::Pos2::new(
-                            ui.cursor().left() + 8.0,
-                            label_rect.center().y,
-                        ),
+                        egui::Pos2::new(ui.cursor().left() + 8.0, label_rect.center().y),
                         egui::Align2::LEFT_CENTER,
                         date,
                         egui::FontId::monospace(13.0),
@@ -382,9 +515,7 @@ impl DrawingSettingsModal {
                     let resp = ui
                         .allocate_ui_with_layout(
                             Vec2::new(field_width, 28.0),
-                            egui::Layout::centered_and_justified(
-                                egui::Direction::LeftToRight,
-                            ),
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 let vis = &mut ui.visuals_mut();
                                 vis.extreme_bg_color = INPUT_BG;
@@ -409,8 +540,13 @@ impl DrawingSettingsModal {
 fn outlined_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let desired = Vec2::new(150.0, 32.0);
     let (rect, resp) = ui.allocate_exact_size(desired, Sense::click());
-    let border = if resp.hovered() { TEXT_MUTED } else { BTN_OUTLINE };
-    ui.painter().rect_filled(rect, CornerRadius::same(6), Color32::TRANSPARENT);
+    let border = if resp.hovered() {
+        TEXT_MUTED
+    } else {
+        BTN_OUTLINE
+    };
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(6), Color32::TRANSPARENT);
     ui.painter().rect_stroke(
         rect,
         CornerRadius::same(6),

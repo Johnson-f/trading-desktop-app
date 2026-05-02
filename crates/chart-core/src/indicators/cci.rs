@@ -1,18 +1,16 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::CommodityChannelIndex as TaCci;
-use super::util::build_data_items;
 
-pub fn compute_cci(
-    highs: &[f32],
-    lows: &[f32],
-    closes: &[f32],
-    period: usize,
-) -> Vec<Option<f32>> {
+pub fn compute_cci(highs: &[f32], lows: &[f32], closes: &[f32], period: usize) -> Vec<Option<f32>> {
     let items = build_data_items(highs, lows, closes, None);
     let Ok(mut cci) = TaCci::new(period) else {
         return vec![None; items.len()];
     };
-    items.iter().map(|item| Some(cci.next(item) as f32)).collect()
+    items
+        .iter()
+        .map(|item| Some(cci.next(item) as f32))
+        .collect()
 }
 
 #[cfg(test)]

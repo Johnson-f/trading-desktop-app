@@ -95,9 +95,7 @@ impl Indicator for Atr {
             return;
         }
         let range = (y_max - y_min).max(1e-6);
-        let y_of = |v: f32| -> f32 {
-            pane_rect.top() + ((y_max - v) / range) * pane_rect.height()
-        };
+        let y_of = |v: f32| -> f32 { pane_rect.top() + ((y_max - v) / range) * pane_rect.height() };
 
         // Draw ATR line — no guide lines
         let color = egui_color(params.color("color"));

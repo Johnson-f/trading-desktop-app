@@ -7,6 +7,7 @@ mod gaps;
 mod grid;
 mod indicators;
 mod interaction;
+pub mod multi_charts;
 mod pane;
 mod range_markers;
 mod renderer;
@@ -19,8 +20,8 @@ use camera::Camera;
 pub use candle::{CandleData, JsonCandle, Timeframe};
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
-    DrawingsManager, HIT_TOLERANCE_PX, SelectionInput, ToolbarEvent, paint_handles,
-    selection_step, show_toolbar, toolbar_anchor_rect,
+    DrawingsManager, HIT_TOLERANCE_PX, SelectionInput, ToolbarEvent, paint_handles, selection_step,
+    show_toolbar, toolbar_anchor_rect,
 };
 use indicators::{self as ind, IndicatorManager, ParamValues};
 use interaction::InteractionState;
@@ -164,7 +165,7 @@ impl ChartWidget {
         self.drawing_settings_modal
             .show(ui.ctx(), &mut self.drawings, &self.data);
         self.paint_crosshair(ui, chart_rect, full_rect);
-        
+
         // Render notification toast
         self.paint_notification(ui, total_rect);
     }
@@ -538,6 +539,7 @@ impl ChartWidget {
                 &camera,
                 &drawing.points,
                 &drawing.style,
+                &drawing.kind_style,
             );
         }
         if let Some(draft) = self.drawings.draft.as_ref() {
@@ -552,9 +554,11 @@ impl ChartWidget {
         crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
     }
 
-    /// Show an immediate (no-delay) tooltip naming the drawing under the cursor.
-    /// Suppressed while the user is placing a new drawing or dragging one, to
-    /// avoid visual noise during edits.
+    /// Show an immediate (no-delay) label naming the drawing under the cursor.
+    /// Painted directly on the chart painter as a small pill anchored to the
+    /// drawing's bounds (above, or below if it wouldn't fit) — never on top
+    /// of the drawing itself, and position is stable so it doesn't flicker.
+    /// Suppressed while placing / dragging.
     fn paint_drawing_hover_tooltip(
         &self,
         ui: &egui::Ui,
@@ -575,13 +579,11 @@ impl ChartWidget {
         }
 
         let camera = self.camera.lock();
-        // Iterate in reverse so the most recently added drawing wins, matching
-        // the selection hit-test order.
         for drawing in self.drawings.committed.iter().rev() {
             let Some(tool) = self.drawings.tool_for(drawing.def_id) else {
                 continue;
             };
-            if tool.hit_test(
+            if !tool.hit_test(
                 chart_rect,
                 full_rect,
                 &camera,
@@ -589,19 +591,45 @@ impl ChartWidget {
                 pointer,
                 HIT_TOLERANCE_PX,
             ) {
-                let label = tool.display_name().to_string();
-                egui::Tooltip::always_open(
-                    ui.ctx().clone(),
-                    ui.layer_id(),
-                    egui::Id::new(("drawing_hover_tooltip", drawing.id)),
-                    egui::PopupAnchor::Pointer,
-                )
-                .gap(12.0)
-                .show(|ui| {
-                    ui.label(label);
-                });
-                break;
+                continue;
             }
+
+            let label = tool.display_name().to_string();
+            let bounds = tool.bounds(chart_rect, full_rect, &camera, &drawing.points);
+
+            let painter = ui.painter_at(chart_rect);
+            let font = egui::FontId::proportional(11.0);
+            let text_color = egui::Color32::from_rgb(225, 225, 230);
+            let bg = egui::Color32::from_rgba_premultiplied(30, 30, 36, 230);
+            let border = egui::Color32::from_rgb(60, 60, 66);
+
+            let galley = painter.layout_no_wrap(label, font, text_color);
+            let pad = egui::vec2(8.0, 4.0);
+            let size = galley.size() + pad * 2.0;
+
+            // Anchor horizontally to the bounds' midpoint; vertically above
+            // the bounds with a small gap, flipping below if that'd clip the
+            // chart top. Always offset so the pill never overlaps the shape.
+            let gap = 6.0;
+            let mut top = bounds.top() - size.y - gap;
+            if top < chart_rect.top() + 2.0 {
+                top = bounds.bottom() + gap;
+            }
+            let mut left = bounds.center().x - size.x * 0.5;
+            left = left
+                .max(chart_rect.left() + 2.0)
+                .min(chart_rect.right() - size.x - 2.0);
+
+            let rect = egui::Rect::from_min_size(egui::pos2(left, top), size);
+            painter.rect_filled(rect, egui::CornerRadius::same(3), bg);
+            painter.rect_stroke(
+                rect,
+                egui::CornerRadius::same(3),
+                egui::Stroke::new(0.5, border),
+                egui::StrokeKind::Inside,
+            );
+            painter.galley(rect.min + pad, galley, text_color);
+            break;
         }
     }
 
@@ -778,29 +806,29 @@ impl ChartWidget {
             }
         }
     }
-    
+
     fn paint_notification(&mut self, ui: &egui::Ui, rect: egui::Rect) {
         const NOTIFICATION_DURATION_SECS: f32 = 2.0;
-        
+
         if let Some((message, start_time)) = &self.notification {
             let elapsed = start_time.elapsed().as_secs_f32();
-            
+
             if elapsed > NOTIFICATION_DURATION_SECS {
                 self.notification = None;
                 return;
             }
-            
+
             // Fade out in the last 0.5 seconds
             let alpha = if elapsed > NOTIFICATION_DURATION_SECS - 0.5 {
                 ((NOTIFICATION_DURATION_SECS - elapsed) / 0.5).clamp(0.0, 1.0)
             } else {
                 1.0
             };
-            
+
             let painter = ui.painter_at(rect);
             let center = rect.center();
             let text_pos = egui::Pos2::new(center.x, rect.top() + 60.0);
-            
+
             // Determine color based on message type
             let (bg_color, text_color) = if message.starts_with('✓') {
                 (
@@ -813,26 +841,26 @@ impl ChartWidget {
                     egui::Color32::from_rgba_unmultiplied(255, 255, 255, (255.0 * alpha) as u8),
                 )
             };
-            
+
             // Measure text size
             let font_id = egui::FontId::proportional(14.0);
             let galley = painter.layout_no_wrap(message.clone(), font_id.clone(), text_color);
-            
+
             // Draw background
             let padding = egui::Vec2::new(12.0, 8.0);
-            let bg_rect = egui::Rect::from_center_size(
-                text_pos,
-                galley.size() + padding * 2.0,
-            );
+            let bg_rect = egui::Rect::from_center_size(text_pos, galley.size() + padding * 2.0);
             painter.rect_filled(bg_rect, egui::Rounding::same(6), bg_color);
-            
+
             // Draw text
             painter.galley(
-                egui::Pos2::new(text_pos.x - galley.size().x / 2.0, text_pos.y - galley.size().y / 2.0),
+                egui::Pos2::new(
+                    text_pos.x - galley.size().x / 2.0,
+                    text_pos.y - galley.size().y / 2.0,
+                ),
                 galley,
                 text_color,
             );
-            
+
             // Request repaint for animation
             ui.ctx().request_repaint();
         }

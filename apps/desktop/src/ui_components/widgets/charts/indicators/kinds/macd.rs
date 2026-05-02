@@ -131,9 +131,7 @@ impl Indicator for Macd {
             }
         }
         let range = (y_max - y_min).max(1e-6);
-        let y_of = |v: f32| -> f32 {
-            pane_rect.top() + ((y_max - v) / range) * pane_rect.height()
-        };
+        let y_of = |v: f32| -> f32 { pane_rect.top() + ((y_max - v) / range) * pane_rect.height() };
 
         // Draw zero line
         let zero_y = y_of(0.0);

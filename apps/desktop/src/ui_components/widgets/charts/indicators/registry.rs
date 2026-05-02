@@ -1,4 +1,8 @@
-use super::kinds::{adx, alma, atr, bollinger, cci, chandelier, ema, hma, ichimoku, keltner, macd, mfi, obv, parabolic_sar, pivot_points, ppo, roc, rsi, sma, stochastic, supertrend, volume, vwap, williams_r, wma};
+use super::kinds::{
+    adx, alma, atr, bollinger, cci, chandelier, ema, hma, ichimoku, keltner, macd, mfi, obv,
+    parabolic_sar, pivot_points, ppo, roc, rsi, sma, stochastic, supertrend, volume, vwap,
+    williams_r, wma,
+};
 use super::params::ParamSchema;
 use super::trait_def::{Indicator, RenderTarget};
 

@@ -30,9 +30,7 @@ pub fn compute_hma(closes: &[f32], period: usize) -> Vec<Option<f32>> {
     wma_diff
         .iter()
         .enumerate()
-        .map(|(i, v)| {
-            if valid[i] { *v } else { None }
-        })
+        .map(|(i, v)| if valid[i] { *v } else { None })
         .collect()
 }
 

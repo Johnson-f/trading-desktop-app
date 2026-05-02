@@ -62,7 +62,11 @@ impl Indicator for Chandelier {
     }
 
     fn display_name(&self, params: &ParamValues) -> String {
-        format!("CE({}, {})", params.int("period"), params.float("multiplier"))
+        format!(
+            "CE({}, {})",
+            params.int("period"),
+            params.float("multiplier")
+        )
     }
 
     fn target(&self) -> RenderTarget {
@@ -99,7 +103,9 @@ impl Indicator for Chandelier {
         let short_color = egui_color(params.color("short_color"));
 
         for (key, color) in [("long", long_color), ("short", short_color)] {
-            let Some(series) = computed.series.get(key) else { continue };
+            let Some(series) = computed.series.get(key) else {
+                continue;
+            };
             let mut current: Vec<Pos2> = Vec::with_capacity(series.len());
             for (i, v) in series.iter().enumerate() {
                 match v {

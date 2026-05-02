@@ -288,11 +288,7 @@ fn jdn(year: i32, month: u32, day: u32) -> i64 {
     let a = (14 - month as i32) / 12;
     let y = year + 4800 - a;
     let m = month as i32 + 12 * a - 3;
-    (day as i64)
-        + ((153 * m as i64 + 2) / 5)
-        + 365 * y as i64
-        + (y as i64) / 4
-        - (y as i64) / 100
+    (day as i64) + ((153 * m as i64 + 2) / 5) + 365 * y as i64 + (y as i64) / 4 - (y as i64) / 100
         + (y as i64) / 400
         - 32045
 }
@@ -386,7 +382,10 @@ mod tests {
         assert_eq!(b.instances[2].close, 4.5);
         assert_eq!(b.instances[2].high, 5.0);
         assert_eq!(b.instances[2].low, 3.5);
-        assert_eq!(b.dates, vec!["d3".to_string(), "d6".to_string(), "d7".to_string()]);
+        assert_eq!(
+            b.dates,
+            vec!["d3".to_string(), "d6".to_string(), "d7".to_string()]
+        );
     }
 
     #[test]

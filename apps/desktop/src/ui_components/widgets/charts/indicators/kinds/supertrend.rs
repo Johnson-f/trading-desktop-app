@@ -62,7 +62,11 @@ impl Indicator for Supertrend {
     }
 
     fn display_name(&self, params: &ParamValues) -> String {
-        format!("ST({}, {})", params.int("period"), params.float("multiplier"))
+        format!(
+            "ST({}, {})",
+            params.int("period"),
+            params.float("multiplier")
+        )
     }
 
     fn target(&self) -> RenderTarget {

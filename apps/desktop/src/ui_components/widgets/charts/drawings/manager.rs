@@ -53,12 +53,16 @@ impl DrawingsManager {
     ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
+        let kind_style = registry::get(def_id)
+            .map(|def| (def.factory)().default_kind_style())
+            .unwrap_or(super::kind_style::KindStyle::None);
         self.committed.push(CommittedDrawing {
             id,
             def_id,
             points,
             point_dates,
             style: super::style::DrawingStyle::default(),
+            kind_style,
             locked: false,
         });
         self.draft = None;
@@ -133,6 +137,7 @@ impl DrawingsManager {
             points,
             point_dates: src.point_dates.clone(),
             style: src.style,
+            kind_style: src.kind_style,
             locked: false,
         });
         self.selected = Some(id);
@@ -170,17 +175,22 @@ impl DrawingsManager {
         }
     }
 
-    /// Translate a specific drawing's handle to a new world position.
+    /// Translate a specific drawing's handle to a new world position. Delegates
+    /// to the tool's `apply_handle_move` so tools with synthesized handles
+    /// (Rectangle's 4 corners from 2 stored points) can map the drag back to
+    /// their own point layout.
     pub fn move_handle(&mut self, drawing_id: u64, handle_idx: usize, target: WorldPoint) {
-        let Some(d) = self.committed.iter_mut().find(|d| d.id == drawing_id) else {
+        let Some(idx) = self.committed.iter().position(|d| d.id == drawing_id) else {
             return;
         };
-        if d.locked {
+        if self.committed[idx].locked {
             return;
         }
-        if let Some(pt) = d.points.get_mut(handle_idx) {
-            *pt = target;
-        }
+        let def_id = self.committed[idx].def_id;
+        let Some(tool) = self.tool_for(def_id) else {
+            return;
+        };
+        tool.apply_handle_move(&mut self.committed[idx].points, handle_idx, target);
     }
 
     /// Translate every point of a drawing by a world-space delta.

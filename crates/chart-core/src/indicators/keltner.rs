@@ -1,6 +1,6 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::KeltnerChannel as TaKeltner;
-use super::util::build_data_items;
 
 /// Returns three series: (upper, middle, lower).
 pub fn compute_keltner(

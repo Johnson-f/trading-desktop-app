@@ -3,6 +3,7 @@ use kurbo::Line;
 
 use super::super::super::camera::Camera;
 use super::super::hit_test::{hit_shape, to_kurbo};
+use super::super::kind_style::KindStyle;
 use super::super::style::{DrawingStyle, paint_hline};
 use super::super::trait_def::{
     DrawingDraft, DrawingTool, InputResult, WorldPoint, world_to_screen,
@@ -51,6 +52,7 @@ impl DrawingTool for HorizontalLine {
         camera: &Camera,
         points: &[WorldPoint],
         style: &DrawingStyle,
+        _kind_style: &KindStyle,
     ) {
         let Some(p) = points.first() else { return };
         let painter = painter.with_clip_rect(chart_rect);

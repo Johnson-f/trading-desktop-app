@@ -54,7 +54,11 @@ impl Indicator for Keltner {
         ID
     }
     fn display_name(&self, params: &ParamValues) -> String {
-        format!("KC({}, {})", params.int("period"), params.float("multiplier"))
+        format!(
+            "KC({}, {})",
+            params.int("period"),
+            params.float("multiplier")
+        )
     }
     fn target(&self) -> RenderTarget {
         RenderTarget::MainOverlay

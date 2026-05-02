@@ -3,6 +3,7 @@ use kurbo::Line;
 
 use super::super::super::camera::Camera;
 use super::super::hit_test::{hit_shape, to_kurbo};
+use super::super::kind_style::KindStyle;
 use super::super::style::{DrawingStyle, paint_vline};
 use super::super::trait_def::{
     DrawingDraft, DrawingTool, InputResult, WorldPoint, world_to_screen,
@@ -51,6 +52,7 @@ impl DrawingTool for VerticalLine {
         camera: &Camera,
         points: &[WorldPoint],
         style: &DrawingStyle,
+        _kind_style: &KindStyle,
     ) {
         let Some(p) = points.first() else { return };
         let x = world_to_screen(full_rect, camera, *p).x;

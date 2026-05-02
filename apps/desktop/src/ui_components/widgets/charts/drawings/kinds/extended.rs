@@ -3,6 +3,7 @@ use kurbo::Line;
 
 use super::super::super::camera::Camera;
 use super::super::hit_test::{hit_shape, to_kurbo};
+use super::super::kind_style::KindStyle;
 use super::super::style::{DrawingStyle, paint_line};
 use super::super::trait_def::{
     DrawingDraft, DrawingTool, InputResult, WorldPoint, line_rect_intersection, world_to_screen,
@@ -51,6 +52,7 @@ impl DrawingTool for Extended {
         camera: &Camera,
         points: &[WorldPoint],
         style: &DrawingStyle,
+        _kind_style: &KindStyle,
     ) {
         if points.len() < 2 {
             return;

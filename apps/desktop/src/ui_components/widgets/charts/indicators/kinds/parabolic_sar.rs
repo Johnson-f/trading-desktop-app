@@ -90,7 +90,9 @@ impl Indicator for ParabolicSar {
         computed: &ComputedSeries,
         params: &ParamValues,
     ) {
-        let Some(series) = computed.series.get("sar") else { return };
+        let Some(series) = computed.series.get("sar") else {
+            return;
+        };
         let color = egui_color(params.color("color"));
 
         for (i, v) in series.iter().enumerate() {

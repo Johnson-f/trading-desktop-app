@@ -1,7 +1,7 @@
 mod client;
 mod error;
-mod schema;
 pub mod operations;
+mod schema;
 
 pub use client::Database;
 pub use error::{DatabaseError, Result};

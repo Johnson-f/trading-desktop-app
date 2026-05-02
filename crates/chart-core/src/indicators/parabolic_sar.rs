@@ -23,7 +23,9 @@ pub fn compute_parabolic_sar(
 
         if is_long {
             current_sar = current_sar.min(lows[i - 1]);
-            if i >= 2 { current_sar = current_sar.min(lows[i - 2]); }
+            if i >= 2 {
+                current_sar = current_sar.min(lows[i - 2]);
+            }
 
             if lows[i] < current_sar {
                 is_long = false;
@@ -38,7 +40,9 @@ pub fn compute_parabolic_sar(
             }
         } else {
             current_sar = current_sar.max(highs[i - 1]);
-            if i >= 2 { current_sar = current_sar.max(highs[i - 2]); }
+            if i >= 2 {
+                current_sar = current_sar.max(highs[i - 2]);
+            }
 
             if highs[i] > current_sar {
                 is_long = true;

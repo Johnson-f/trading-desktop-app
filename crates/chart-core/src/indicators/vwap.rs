@@ -7,7 +7,11 @@ pub fn compute_vwap(
     volumes: &[f32],
     dates: &[String],
 ) -> Vec<Option<f32>> {
-    let n = highs.len().min(lows.len()).min(closes.len()).min(volumes.len());
+    let n = highs
+        .len()
+        .min(lows.len())
+        .min(closes.len())
+        .min(volumes.len());
     if n == 0 {
         return Vec::new();
     }
@@ -89,10 +93,7 @@ mod tests {
         let lows = vec![8.0f32, 9.0];
         let closes = vec![9.0f32, 10.0];
         let volumes = vec![0.0f32, 0.0];
-        let dates: Vec<String> = vec![
-            "2024-01-01".to_string(),
-            "2024-01-01".to_string(),
-        ];
+        let dates: Vec<String> = vec!["2024-01-01".to_string(), "2024-01-01".to_string()];
         let result = compute_vwap(&highs, &lows, &closes, &volumes, &dates);
         assert_eq!(result.len(), 2);
         // Zero volume → None

@@ -55,7 +55,12 @@ impl Indicator for Mfi {
     }
 
     fn inputs(&self, _params: &ParamValues) -> Vec<InputSpec> {
-        vec![InputSpec::Highs, InputSpec::Lows, InputSpec::Closes, InputSpec::Volumes]
+        vec![
+            InputSpec::Highs,
+            InputSpec::Lows,
+            InputSpec::Closes,
+            InputSpec::Volumes,
+        ]
     }
 
     fn compute(&self, inputs: &[&[f32]], params: &ParamValues) -> ComputedSeries {

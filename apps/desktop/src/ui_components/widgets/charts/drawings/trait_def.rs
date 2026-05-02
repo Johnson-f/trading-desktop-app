@@ -1,6 +1,7 @@
 use egui::{Painter, Rect};
 
 use super::super::camera::Camera;
+use super::kind_style::KindStyle;
 use super::style::DrawingStyle;
 
 /// A point anchored in chart world coordinates — candle index (x) and price (y).
@@ -28,6 +29,8 @@ pub struct CommittedDrawing {
     pub point_dates: Vec<String>,
     #[serde(default)]
     pub style: DrawingStyle,
+    #[serde(default)]
+    pub kind_style: KindStyle,
     #[serde(default)]
     pub locked: bool,
 }
@@ -63,7 +66,9 @@ pub trait DrawingTool: Send + Sync {
     /// Render a committed drawing using its stored style. `full_rect` spans
     /// the main chart + sub-panes; tools whose shape should span all panes
     /// (vertical line) paint against it, others narrow their painter clip back
-    /// to chart_rect.
+    /// to chart_rect. `kind_style` carries tool-specific appearance knobs
+    /// (fills, label toggles, etc.); tools that don't need one get
+    /// `KindStyle::None` and ignore it.
     fn render(
         &self,
         painter: &Painter,
@@ -72,6 +77,7 @@ pub trait DrawingTool: Send + Sync {
         camera: &Camera,
         points: &[WorldPoint],
         style: &DrawingStyle,
+        kind_style: &KindStyle,
     );
 
     /// Render an in-progress preview. Defaults to the same look as a committed
@@ -91,6 +97,7 @@ pub trait DrawingTool: Send + Sync {
             camera,
             points,
             &DrawingStyle::default(),
+            &KindStyle::None,
         );
     }
 
@@ -136,6 +143,27 @@ pub trait DrawingTool: Send + Sync {
     /// Which extend toggles the settings modal should show for this tool.
     fn extend_capabilities(&self) -> ExtendCapabilities {
         ExtendCapabilities::default()
+    }
+
+    /// Starting `KindStyle` for a freshly committed drawing of this kind. Tools
+    /// that have no per-kind knobs leave this at `KindStyle::None`.
+    fn default_kind_style(&self) -> KindStyle {
+        KindStyle::None
+    }
+
+    /// Apply a handle drag. Default: replace `points[handle_idx]` with `target`
+    /// — fine for every tool whose handles correspond 1:1 with stored control
+    /// points. Tools that expose synthesized handles (e.g. Rectangle's 4
+    /// corners driven by 2 stored points) override this.
+    fn apply_handle_move(
+        &self,
+        points: &mut Vec<WorldPoint>,
+        handle_idx: usize,
+        target: WorldPoint,
+    ) {
+        if let Some(pt) = points.get_mut(handle_idx) {
+            *pt = target;
+        }
     }
 }
 

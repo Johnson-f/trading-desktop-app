@@ -131,8 +131,7 @@ impl CallbackTrait for ChartCallback {
         if !*initialized {
             let camera = self.camera.lock();
             let format = self.target_format;
-            let chart_resources =
-                ChartResources::new(device, format, self.data.clone(), &camera);
+            let chart_resources = ChartResources::new(device, format, self.data.clone(), &camera);
             resources.insert(chart_resources);
             *initialized = true;
         } else if let Some(res) = resources.get_mut::<ChartResources>() {

@@ -11,20 +11,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing database...");
     let db = zaned_database::Database::init().await?;
     println!("✓ Database initialized at: {}", db.path().display());
-    
+
     if let Some(version) = db.get_schema_version().await? {
         println!("✓ Schema version: {}", version);
     }
-    
+
     // Get database pool for the app
     let db_pool = db.pool().clone();
-    
+
     // Get tokio runtime handle for async operations
     let runtime_handle = tokio::runtime::Handle::current();
-    
+
     // Initialize drawing defaults with database
-    ui_components::widgets::charts::drawings::init_with_database(db_pool.clone(), runtime_handle.clone());
-    
+    ui_components::widgets::charts::drawings::init_with_database(
+        db_pool.clone(),
+        runtime_handle.clone(),
+    );
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_titlebar_shown(false)
@@ -46,12 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             visuals.window_fill = bg;
             visuals.faint_bg_color = bg;
             cc.egui_ctx.set_visuals(visuals);
-            
+
             // Store database pool and runtime handle in the app
             Ok(Box::new(MyApp::new(db_pool, runtime_handle)))
         }),
     )?;
-    
+
     Ok(())
 }
 

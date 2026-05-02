@@ -1,6 +1,6 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::MoneyFlowIndex as TaMfi;
-use super::util::build_data_items;
 
 pub fn compute_mfi(
     highs: &[f32],
@@ -13,7 +13,10 @@ pub fn compute_mfi(
     let Ok(mut mfi) = TaMfi::new(period) else {
         return vec![None; items.len()];
     };
-    items.iter().map(|item| Some(mfi.next(item) as f32)).collect()
+    items
+        .iter()
+        .map(|item| Some(mfi.next(item) as f32))
+        .collect()
 }
 
 #[cfg(test)]

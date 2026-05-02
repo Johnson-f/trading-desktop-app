@@ -35,10 +35,7 @@ mod tests {
         let closes: Vec<f32> = (1..=50).map(|i| i as f32).collect();
         let result = compute_williams_r(&highs, &lows, &closes, 14);
         for v in result.iter().flatten() {
-            assert!(
-                *v >= -100.0 && *v <= 0.0,
-                "Williams %R out of range: {v}"
-            );
+            assert!(*v >= -100.0 && *v <= 0.0, "Williams %R out of range: {v}");
         }
     }
 

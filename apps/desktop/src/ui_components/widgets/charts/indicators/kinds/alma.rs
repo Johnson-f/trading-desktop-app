@@ -81,7 +81,12 @@ impl Indicator for Alma {
     fn compute(&self, inputs: &[&[f32]], params: &ParamValues) -> ComputedSeries {
         let closes = inputs.first().copied().unwrap_or(&[]);
         let period = params.int("period").max(2) as usize;
-        let series = compute_alma(closes, period, params.float("offset"), params.float("sigma"));
+        let series = compute_alma(
+            closes,
+            period,
+            params.float("offset"),
+            params.float("sigma"),
+        );
         let mut out = ComputedSeries::default();
         out.series.insert("alma", series);
         out

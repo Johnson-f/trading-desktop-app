@@ -13,15 +13,13 @@ pub const NAME: &str = "OBV";
 pub const LIKES: u32 = 9876;
 
 pub static SCHEMA: ParamSchema = ParamSchema {
-    fields: &[
-        ParamField {
-            key: "color",
-            label: "Color",
-            kind: ParamKind::Color {
-                default: Rgba::from_rgb(63, 81, 181),
-            },
+    fields: &[ParamField {
+        key: "color",
+        label: "Color",
+        kind: ParamKind::Color {
+            default: Rgba::from_rgb(63, 81, 181),
         },
-    ],
+    }],
 };
 
 pub struct Obv;
@@ -84,9 +82,7 @@ impl Indicator for Obv {
             return;
         }
         let range = (y_max - y_min).max(1e-6);
-        let y_of = |v: f32| -> f32 {
-            pane_rect.top() + ((y_max - v) / range) * pane_rect.height()
-        };
+        let y_of = |v: f32| -> f32 { pane_rect.top() + ((y_max - v) / range) * pane_rect.height() };
 
         let color = egui_color(params.color("color"));
         let mut current: Vec<Pos2> = Vec::with_capacity(series.len());

@@ -58,7 +58,11 @@ mod tests {
         assert_eq!(result.len(), 5);
         // The last bar (index 4) should be Some and heavily weighted toward 10.0
         let v = result[4].unwrap();
-        assert!(v > 5.0, "with offset=1 and last bar=10, expected > 5, got {}", v);
+        assert!(
+            v > 5.0,
+            "with offset=1 and last bar=10, expected > 5, got {}",
+            v
+        );
     }
 
     #[test]

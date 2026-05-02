@@ -71,10 +71,10 @@ pub fn paint(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData
             + ((gap.start_idx as f64 - 0.5 - camera.x_offset) * camera.x_scale) as f32;
         let x_right = chart_rect.left()
             + ((gap.end_idx as f64 + 0.5 - camera.x_offset) * camera.x_scale) as f32;
-        let y_top =
-            chart_rect.bottom() - ((gap.price_high as f64 - camera.y_offset) * camera.y_scale) as f32;
-        let y_bottom =
-            chart_rect.bottom() - ((gap.price_low as f64 - camera.y_offset) * camera.y_scale) as f32;
+        let y_top = chart_rect.bottom()
+            - ((gap.price_high as f64 - camera.y_offset) * camera.y_scale) as f32;
+        let y_bottom = chart_rect.bottom()
+            - ((gap.price_low as f64 - camera.y_offset) * camera.y_scale) as f32;
 
         let rect = Rect::from_min_max(
             Pos2::new(x_left.max(chart_rect.left()), y_top),
@@ -136,10 +136,7 @@ mod tests {
     #[test]
     fn detects_gap_up() {
         // prev high = 5, current low = 7 → gap up (5..7).
-        let d = mk(
-            3,
-            &[(5.0, 4.0), (8.0, 7.0), (9.0, 8.0)],
-        );
+        let d = mk(3, &[(5.0, 4.0), (8.0, 7.0), (9.0, 8.0)]);
         let gaps = detect(&d);
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].start_idx, 1);
@@ -162,10 +159,7 @@ mod tests {
     fn filled_gap_is_dropped() {
         // Gap up at i=1 spans 5..7. i=3 dips back to 6 — that's a fill, so
         // the gap should not be reported at all.
-        let d = mk(
-            4,
-            &[(5.0, 4.0), (8.0, 7.0), (9.0, 8.0), (10.0, 6.0)],
-        );
+        let d = mk(4, &[(5.0, 4.0), (8.0, 7.0), (9.0, 8.0), (10.0, 6.0)]);
         assert!(detect(&d).is_empty());
     }
 

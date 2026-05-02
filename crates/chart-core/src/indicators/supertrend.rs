@@ -1,6 +1,6 @@
+use super::util::build_data_items;
 use ta::Next;
 use ta::indicators::AverageTrueRange;
-use super::util::build_data_items;
 
 /// Returns two series: (supertrend_value, direction).
 /// Direction: 1.0 = uptrend, -1.0 = downtrend.
@@ -36,21 +36,23 @@ pub fn compute_supertrend(
         let basic_upper = hl2 + multiplier * atr_vals[i];
         let basic_lower = hl2 - multiplier * atr_vals[i];
 
-        upper_band[i] = if i > 0 && (basic_upper < upper_band[i - 1] || closes[i - 1] > upper_band[i - 1]) {
-            basic_upper
-        } else if i > 0 {
-            upper_band[i - 1]
-        } else {
-            basic_upper
-        };
+        upper_band[i] =
+            if i > 0 && (basic_upper < upper_band[i - 1] || closes[i - 1] > upper_band[i - 1]) {
+                basic_upper
+            } else if i > 0 {
+                upper_band[i - 1]
+            } else {
+                basic_upper
+            };
 
-        lower_band[i] = if i > 0 && (basic_lower > lower_band[i - 1] || closes[i - 1] < lower_band[i - 1]) {
-            basic_lower
-        } else if i > 0 {
-            lower_band[i - 1]
-        } else {
-            basic_lower
-        };
+        lower_band[i] =
+            if i > 0 && (basic_lower > lower_band[i - 1] || closes[i - 1] < lower_band[i - 1]) {
+                basic_lower
+            } else if i > 0 {
+                lower_band[i - 1]
+            } else {
+                basic_lower
+            };
 
         if i < period {
             continue;
