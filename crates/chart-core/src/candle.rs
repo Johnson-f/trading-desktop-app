@@ -52,6 +52,7 @@ pub struct JsonCandle {
     pub volume: i64,
 }
 
+#[derive(Clone)]
 pub struct CandleData {
     pub instances: Vec<CandleInstance>,
     pub dates: Vec<String>,
@@ -93,6 +94,39 @@ impl CandleData {
         }
         let idx = self.dates.partition_point(|d| d.as_str() < date);
         Some(idx.min(self.dates.len() - 1))
+    }
+
+    /// Returns the date string at the given index, or `None` if out of range.
+    pub fn date_for_index(&self, idx: usize) -> Option<String> {
+        self.dates.get(idx).cloned()
+    }
+
+    /// Like `index_for_date`, but on a miss returns the index of the nearest
+    /// available date (by absolute difference in `YYYY-MM-DD` lex order, which
+    /// is also chronological order). Returns `None` only when the data is empty.
+    pub fn nearest_index_for_date(&self, date: &str) -> Option<usize> {
+        if self.dates.is_empty() {
+            return None;
+        }
+        let pos = self.dates.partition_point(|d| d.as_str() < date);
+        if pos == 0 {
+            return Some(0);
+        }
+        if pos == self.dates.len() {
+            return Some(self.dates.len() - 1);
+        }
+        let after = &self.dates[pos];
+        let before = &self.dates[pos - 1];
+        if after.as_str() == date {
+            return Some(pos);
+        }
+        let d_before = days_between_yyyy_mm_dd(before, date);
+        let d_after = days_between_yyyy_mm_dd(date, after);
+        if d_before <= d_after {
+            Some(pos - 1)
+        } else {
+            Some(pos)
+        }
     }
 
     /// Roll up daily candles into calendar-aligned higher-timeframe bars.
@@ -236,6 +270,16 @@ fn push_aggregate(
         volume,
     });
     dates.push(last_date.to_string());
+}
+
+/// Exact day-difference between two `YYYY-MM-DD` strings via Julian Day Numbers.
+/// Returns `i64::MAX` if either string fails to parse — callers only use this
+/// for "which is closer" comparisons so an unparseable date will simply lose.
+fn days_between_yyyy_mm_dd(a: &str, b: &str) -> i64 {
+    let (Some((ya, ma, da)), Some((yb, mb, db))) = (parse_ymd(a), parse_ymd(b)) else {
+        return i64::MAX;
+    };
+    (jdn(ya, ma, da) - jdn(yb, mb, db)).abs()
 }
 
 /// Calendar bucket key for a date string and a target timeframe. Returns a
@@ -497,5 +541,40 @@ mod tests {
         for (i, inst) in agg.instances.iter().enumerate() {
             assert_eq!(inst.index as usize, i);
         }
+    }
+
+    #[test]
+    fn date_for_index_returns_date_at_position() {
+        let candles = vec![
+            JsonCandle { date: "2026-01-01".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
+            JsonCandle { date: "2026-01-02".into(), open: 2.0, high: 2.0, low: 2.0, close: 2.0, volume: 0 },
+            JsonCandle { date: "2026-01-03".into(), open: 3.0, high: 3.0, low: 3.0, close: 3.0, volume: 0 },
+        ];
+        let d = CandleData::from_json(&candles);
+        assert_eq!(d.date_for_index(0).as_deref(), Some("2026-01-01"));
+        assert_eq!(d.date_for_index(2).as_deref(), Some("2026-01-03"));
+        assert_eq!(d.date_for_index(99), None);
+    }
+
+    #[test]
+    fn nearest_index_for_date_handles_misses() {
+        let candles = vec![
+            JsonCandle { date: "2026-01-05".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
+            JsonCandle { date: "2026-01-12".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
+            JsonCandle { date: "2026-01-19".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
+        ];
+        let d = CandleData::from_json(&candles);
+        // exact hit
+        assert_eq!(d.nearest_index_for_date("2026-01-12"), Some(1));
+        // before first
+        assert_eq!(d.nearest_index_for_date("2026-01-01"), Some(0));
+        // after last
+        assert_eq!(d.nearest_index_for_date("2026-12-31"), Some(2));
+        // between — picks closer
+        assert_eq!(d.nearest_index_for_date("2026-01-08"), Some(0)); // closer to 2026-01-05 than to 2026-01-12
+        assert_eq!(d.nearest_index_for_date("2026-01-10"), Some(1)); // closer to 2026-01-12 than to 2026-01-05
+        // empty
+        let empty = CandleData::from_json(&[]);
+        assert_eq!(empty.nearest_index_for_date("2026-01-01"), None);
     }
 }

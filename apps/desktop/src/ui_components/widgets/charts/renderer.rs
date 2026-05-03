@@ -1,8 +1,15 @@
 use super::camera::Camera;
 use super::candle::{CandleData, candle_instance_desc, create_candle_buffer};
-use egui::mutex::Mutex;
 use egui_wgpu::CallbackTrait;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Per-pane GPU resources, keyed by chart id. egui_wgpu stores callback
+/// resources by type, so without this map every pane would share the same
+/// camera/vertex buffers and the last-prepared pane's state would visually
+/// drive every pane.
+#[derive(Default)]
+pub struct ChartResourcesMap(pub HashMap<u64, ChartResources>);
 
 pub struct ChartResources {
     pub pipeline: wgpu::RenderPipeline,
@@ -111,9 +118,9 @@ impl ChartResources {
 }
 
 pub struct ChartCallback {
-    pub camera: Arc<Mutex<Camera>>,
+    pub id: u64,
+    pub camera: Arc<egui::mutex::Mutex<Camera>>,
     pub data: Arc<CandleData>,
-    pub initialized: Arc<Mutex<bool>>,
     pub target_format: wgpu::TextureFormat,
 }
 
@@ -126,27 +133,28 @@ impl CallbackTrait for ChartCallback {
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let mut initialized = self.initialized.lock();
-
-        if !*initialized {
-            let camera = self.camera.lock();
-            let format = self.target_format;
-            let chart_resources = ChartResources::new(device, format, self.data.clone(), &camera);
-            resources.insert(chart_resources);
-            *initialized = true;
-        } else if let Some(res) = resources.get_mut::<ChartResources>() {
-            // If the active CandleData Arc changed (e.g. bucket_size flipped),
-            // rebuild the vertex buffer. Pointer-equality is enough because
-            // ChartWidget caches the bucketed variant and only swaps when the
-            // bucket size actually changes.
-            if !Arc::ptr_eq(&res.data, &self.data) {
-                res.rebuild_candle_buffer(device, self.data.clone());
-            }
-            let camera = self.camera.lock();
-            let uniform = camera.to_uniform();
-            queue.write_buffer(&res.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        if resources.get::<ChartResourcesMap>().is_none() {
+            resources.insert(ChartResourcesMap::default());
         }
-
+        let map = resources
+            .get_mut::<ChartResourcesMap>()
+            .expect("inserted above");
+        match map.0.entry(self.id) {
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let camera = self.camera.lock();
+                let res = ChartResources::new(device, self.target_format, self.data.clone(), &camera);
+                v.insert(res);
+            }
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                let res = o.get_mut();
+                if !Arc::ptr_eq(&res.data, &self.data) {
+                    res.rebuild_candle_buffer(device, self.data.clone());
+                }
+                let camera = self.camera.lock();
+                let uniform = camera.to_uniform();
+                queue.write_buffer(&res.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+            }
+        }
         Vec::new()
     }
 
@@ -156,11 +164,11 @@ impl CallbackTrait for ChartCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        if let Some(res) = resources.get::<ChartResources>() {
-            render_pass.set_pipeline(&res.pipeline);
-            render_pass.set_bind_group(0, &res.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, res.candle_buffer.slice(..));
-            render_pass.draw(0..18, 0..res.num_candles);
-        }
+        let Some(map) = resources.get::<ChartResourcesMap>() else { return };
+        let Some(res) = map.0.get(&self.id) else { return };
+        render_pass.set_pipeline(&res.pipeline);
+        render_pass.set_bind_group(0, &res.camera_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, res.candle_buffer.slice(..));
+        render_pass.draw(0..18, 0..res.num_candles);
     }
 }

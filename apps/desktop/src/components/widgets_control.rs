@@ -1,4 +1,4 @@
-use crate::ui_components::widgets::charts::ChartWidget;
+use crate::ChartView;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
 // ── Colors ─────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ impl Default for WidgetsControl {
 }
 
 impl WidgetsControl {
-    pub fn show(&mut self, ui: &mut egui::Ui, chart: Option<&mut ChartWidget>) {
+    pub fn show(&mut self, ui: &mut egui::Ui, chart: Option<&mut ChartView>) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
 

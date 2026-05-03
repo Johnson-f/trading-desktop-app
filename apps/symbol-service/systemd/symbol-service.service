@@ -1,0 +1,20 @@
+[Unit]
+Description=Zaned symbol-service (daily ticker sync to Typesense)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/symbol-service
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=300
+EnvironmentFile=/etc/symbol-service.env
+# Tighten privileges
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

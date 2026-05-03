@@ -4,6 +4,7 @@ mod ui_components;
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
 use ui_components::widgets::charts::{CandleData, ChartWidget, JsonCandle};
+use ui_components::widgets::charts::multi_charts::{self, MultiChartWidget};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,14 +59,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Either the single chart (default) or the multi-chart wrapper. Toggled via
+/// the chart-toolbar multi-chart button. State migrates between variants:
+/// Single → Multi takes the existing chart as pane 0; Multi → Single extracts
+/// the active pane.
+pub enum ChartView {
+    Single(ChartWidget),
+    Multi(MultiChartWidget),
+}
+
+impl ChartView {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        match self {
+            ChartView::Single(c) => c.show(ui),
+            ChartView::Multi(m) => m.show(ui),
+        }
+    }
+
+    pub fn is_multi(&self) -> bool {
+        matches!(self, ChartView::Multi(_))
+    }
+}
+
 struct MyApp {
     top_header: TopHeader,
     widgets_control: WidgetsControl,
     main_sidebar: MainSidebar,
     mini_sidebar: MiniSidebar,
-    chart: Option<ChartWidget>,
+    chart: Option<ChartView>,
     db_pool: sqlx::SqlitePool,
     runtime_handle: tokio::runtime::Handle,
+    /// When set, user clicked the multi-chart toggle while in Multi mode AND
+    /// other panes have user content. We show a confirmation modal before
+    /// dropping their work.
+    pending_collapse_confirm: bool,
 }
 
 impl MyApp {
@@ -76,7 +103,7 @@ impl MyApp {
             if let Ok(candles) = serde_json::from_str::<Vec<JsonCandle>>(&json_str) {
                 if !candles.is_empty() {
                     let data = CandleData::from_json(&candles);
-                    chart = Some(ChartWidget::new(data));
+                    chart = Some(ChartView::Single(ChartWidget::new(data)));
                 }
             }
         }
@@ -89,6 +116,7 @@ impl MyApp {
             chart,
             db_pool,
             runtime_handle,
+            pending_collapse_confirm: false,
         }
     }
 }
@@ -135,5 +163,66 @@ impl eframe::App for MyApp {
             .show_inside(ui, |ui| {
                 self.widgets_control.show(ui, self.chart.as_mut());
             });
+
+        if self.pending_collapse_confirm {
+            egui::Window::new("Collapse multi-chart?")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label(
+                        "Collapsing back to a single chart will discard drawings and \
+                         indicators on inactive panes. Continue?",
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button("Discard and collapse").clicked() {
+                            if let Some(ChartView::Multi(multi)) = self.chart.take() {
+                                self.chart = Some(ChartView::Single(multi.into_active_chart()));
+                            }
+                            self.pending_collapse_confirm = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.pending_collapse_confirm = false;
+                        }
+                    });
+                });
+        }
+
+        if !self.pending_collapse_confirm {
+            if let Some(view) = self.chart.as_mut() {
+                let layout_req = match view {
+                    ChartView::Single(c) => c.take_grid_layout_request(),
+                    ChartView::Multi(m) => m.take_grid_layout_request(),
+                };
+                if let Some(layout) = layout_req {
+                    let owned = self.chart.take().expect("chart is Some by outer condition");
+                    let next = match (owned, layout) {
+                        // Single → non-Single: promote and apply the picked layout.
+                        (ChartView::Single(chart), layout)
+                            if !matches!(layout, multi_charts::GridLayout::Single) =>
+                        {
+                            let raw_data = chart.raw_data_arc();
+                            let symbol = chart.symbol().unwrap_or_else(|| "AAPL".to_string());
+                            let mut multi = MultiChartWidget::from_chart(symbol, raw_data, chart);
+                            multi.set_layout(layout);
+                            ChartView::Multi(multi)
+                        }
+                        // Single → Single: no-op.
+                        (ChartView::Single(chart), _) => ChartView::Single(chart),
+                        // Multi → Single: collapse, with confirm prompt if other panes have content.
+                        (ChartView::Multi(multi), multi_charts::GridLayout::Single) => {
+                            if multi.inactive_panes_have_user_content() {
+                                self.pending_collapse_confirm = true;
+                                ChartView::Multi(multi)
+                            } else {
+                                ChartView::Single(multi.into_active_chart())
+                            }
+                        }
+                        // Multi → other layouts are applied internally by MultiChartWidget.
+                        (ChartView::Multi(multi), _) => ChartView::Multi(multi),
+                    };
+                    self.chart = Some(next);
+                }
+            }
+        }
     }
 }

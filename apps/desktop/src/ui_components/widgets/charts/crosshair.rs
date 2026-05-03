@@ -112,3 +112,28 @@ pub fn paint_crosshair(
     // cursor candle, so drawing a second tooltip here would just overlap it.
     let _ = candle;
 }
+
+/// Paint a dashed vertical line at the world index corresponding to `date`.
+/// No OHLC label, no horizontal price line — this is for sync, not focus.
+pub fn paint_ghost(
+    painter: &egui::Painter,
+    chart_rect: Rect,
+    camera: &super::camera::Camera,
+    data: &super::candle::CandleData,
+    date: &str,
+) {
+    let Some(idx) = data.nearest_index_for_date(date) else {
+        return;
+    };
+    let pixel_x = chart_rect.left() + ((idx as f64 - camera.x_offset) * camera.x_scale) as f32;
+    if pixel_x < chart_rect.left() || pixel_x > chart_rect.right() {
+        return;
+    }
+    let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 200, 120));
+    let mut y = chart_rect.top();
+    while y < chart_rect.bottom() {
+        let y2 = (y + 4.0).min(chart_rect.bottom());
+        painter.line_segment([egui::pos2(pixel_x, y), egui::pos2(pixel_x, y2)], stroke);
+        y += 8.0;
+    }
+}

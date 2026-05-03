@@ -223,65 +223,6 @@ pub fn handle_price_axis_drag(ui: &egui::Ui, chart_rect: Rect, camera: &mut Came
     }
 }
 
-/// Paint "Auto" button at the bottom-right of the chart. Returns true if clicked.
-pub fn paint_auto_button(ui: &egui::Ui, chart_rect: Rect, camera: &mut Camera) {
-    let btn_size = Vec2::new(36.0, 16.0);
-    let btn_rect = Rect::from_min_size(
-        Pos2::new(
-            chart_rect.right() - AXIS_WIDTH + (AXIS_WIDTH - btn_size.x) / 2.0,
-            chart_rect.bottom() - btn_size.y - 6.0,
-        ),
-        btn_size,
-    );
-
-    let response = ui.interact(
-        btn_rect,
-        ui.id().with("auto_scale_btn"),
-        egui::Sense::click(),
-    );
-    let painter = ui.painter_at(chart_rect);
-
-    let is_auto = camera.auto_scale_y;
-
-    let bg = if is_auto {
-        Color32::TRANSPARENT
-    } else if response.hovered() {
-        Color32::from_rgb(35, 35, 40)
-    } else {
-        Color32::from_rgb(28, 28, 32)
-    };
-
-    let text_color = if is_auto {
-        Color32::from_rgb(78, 205, 196) // teal when active
-    } else {
-        LABEL_COLOR
-    };
-
-    let border = if is_auto {
-        Stroke::new(1.0, Color32::from_rgb(78, 205, 196))
-    } else {
-        Stroke::new(0.5, Color32::from_rgb(50, 50, 55))
-    };
-
-    painter.rect_filled(btn_rect, 3.0, bg);
-    painter.rect_stroke(btn_rect, 3.0, border, egui::StrokeKind::Outside);
-    painter.text(
-        btn_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "Auto",
-        FontId::proportional(9.0),
-        text_color,
-    );
-
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-
-    if response.clicked() && !is_auto {
-        camera.auto_scale_y = true;
-    }
-}
-
 fn nice_interval(range: f64, target_count: usize) -> f64 {
     let rough = range / target_count as f64;
     let magnitude = 10.0_f64.powf(rough.log10().floor());

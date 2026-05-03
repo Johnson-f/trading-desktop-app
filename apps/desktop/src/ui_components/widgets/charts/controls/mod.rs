@@ -4,4 +4,4 @@ mod logic;
 
 pub use drawings::DrawingSettingsModal;
 pub use indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal, SettingsModal};
-pub use logic::ChartToolbar;
+pub use logic::{ChartToolbar, ToolbarUiState};

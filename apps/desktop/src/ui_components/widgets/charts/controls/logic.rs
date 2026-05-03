@@ -1,8 +1,8 @@
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
-use super::super::candle::Timeframe;
 use super::super::drawings;
 use super::super::indicators::IndicatorManager;
+use super::super::multi_charts::{GridLayout, SyncFlags};
 use super::indicators::{IndicatorBar, IndicatorBarEvent, IndicatorModal};
 
 const BG: Color32 = Color32::from_rgb(0, 0, 0);
@@ -17,6 +17,7 @@ const TOOLBAR_ICONS: &[&str] = &[
     egui_phosphor::regular::PENCIL_SIMPLE,
     egui_phosphor::regular::PAINT_BUCKET,
     egui_phosphor::regular::CHART_BAR,
+    egui_phosphor::regular::SQUARES_FOUR,
     egui_phosphor::regular::CHART_LINE,
     egui_phosphor::regular::TEXT_T,
     egui_phosphor::regular::CLOUD,
@@ -31,13 +32,15 @@ const TOOLBAR_ICONS: &[&str] = &[
 
 const INDICATOR_TOOL_INDEX: usize = 0;
 const PENCIL_TOOL_INDEX: usize = 1;
-const INDICATOR_INSERT_AFTER: usize = 9;
-const SEPARATORS: &[usize] = &[9];
+const GRIDS_TOOL_INDEX: usize = 4;
+const INDICATOR_INSERT_AFTER: usize = 10;
+const SEPARATORS: &[usize] = &[10];
 const TOOLTIPS: &[&str] = &[
     "Indicator",
     "Drawings",
     "",
     "Line Style",
+    "Grids",
     "",
     "",
     "",
@@ -53,13 +56,64 @@ const TOOLTIPS: &[&str] = &[
 pub struct ChartToolbar {
     pub active_tool: usize,
     pub active_drawing: Option<&'static str>,
-    /// User-selected base timeframe. Read by `ChartWidget` each frame; a
-    /// change triggers re-aggregation + camera reset.
-    pub timeframe: Timeframe,
     pub indicator_bar: IndicatorBar,
     pub indicator_modal: IndicatorModal,
     pub show_indicators: bool,
     pub show_drawings: bool,
+    pub show_grids: bool,
+    /// Set true for one frame when the user clicks the multi-chart toggle.
+    /// Drained by `ChartWidget::take_multi_chart_toggle_request()` and consumed
+    /// by `MyApp` to swap `ChartView` variants.
+    pub toggle_multi_chart_pending: bool,
+    /// Layout currently active in the enclosing `MultiChartWidget` (or
+    /// `Single` when the chart is not in multi mode). Set externally each
+    /// frame so the inline grid bar can highlight the active option.
+    pub active_grid_layout: GridLayout,
+    /// Set when the user picks a layout from the inline grid bar. Drained
+    /// by `ChartWidget::take_grid_layout_request()` and consumed by `MyApp`
+    /// (single-mode) or `MultiChartWidget` (multi-mode) to apply it.
+    pub pending_grid_layout: Option<GridLayout>,
+    /// Sync flags currently active on the enclosing `MultiChartWidget`.
+    /// Set externally each frame so the inline grid bar's Sync checkboxes
+    /// reflect (and can mutate) the live state.
+    pub active_sync_flags: SyncFlags,
+    /// Set when the user toggles a Sync checkbox in the inline grid bar.
+    /// Drained by `ChartWidget::take_sync_flags_request()`.
+    pub pending_sync_flags: Option<SyncFlags>,
+}
+
+/// Slice of `ChartToolbar` state that needs to stay in sync across all panes
+/// in a `MultiChartWidget`. Without this, hovering a different pane (which
+/// switches `active_view` mid-frame) would discard whichever inline bar the
+/// user just opened, since the new active pane's toolbar starts from its own
+/// (closed) UI state.
+#[derive(Clone, Copy, Default)]
+pub struct ToolbarUiState {
+    pub active_tool: usize,
+    pub active_drawing: Option<&'static str>,
+    pub show_indicators: bool,
+    pub show_drawings: bool,
+    pub show_grids: bool,
+}
+
+impl ChartToolbar {
+    pub fn ui_state(&self) -> ToolbarUiState {
+        ToolbarUiState {
+            active_tool: self.active_tool,
+            active_drawing: self.active_drawing,
+            show_indicators: self.show_indicators,
+            show_drawings: self.show_drawings,
+            show_grids: self.show_grids,
+        }
+    }
+
+    pub fn set_ui_state(&mut self, state: ToolbarUiState) {
+        self.active_tool = state.active_tool;
+        self.active_drawing = state.active_drawing;
+        self.show_indicators = state.show_indicators;
+        self.show_drawings = state.show_drawings;
+        self.show_grids = state.show_grids;
+    }
 }
 
 impl Default for ChartToolbar {
@@ -67,11 +121,16 @@ impl Default for ChartToolbar {
         Self {
             active_tool: 0,
             active_drawing: None,
-            timeframe: Timeframe::Daily,
             indicator_bar: IndicatorBar::default(),
             indicator_modal: IndicatorModal::default(),
             show_indicators: false,
             show_drawings: false,
+            show_grids: false,
+            toggle_multi_chart_pending: false,
+            active_grid_layout: GridLayout::Single,
+            pending_grid_layout: None,
+            active_sync_flags: SyncFlags::default(),
+            pending_sync_flags: None,
         }
     }
 }
@@ -95,16 +154,6 @@ impl ChartToolbar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
 
-                    // Timeframe selector (leftmost). Clicking the short-label
-                    // pill opens a popup with the full list.
-                    draw_timeframe_selector(ui, &mut self.timeframe);
-
-                    ui.add_space(2.0);
-                    let (sep_rect, _) =
-                        ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
-                    ui.painter().rect_filled(sep_rect, 0.0, BORDER);
-                    ui.add_space(2.0);
-
                     for (i, icon) in TOOLBAR_ICONS.iter().enumerate() {
                         if self.show_indicators && i > INDICATOR_INSERT_AFTER {
                             continue;
@@ -114,13 +163,20 @@ impl ChartToolbar {
                         if self.show_drawings && i > PENCIL_TOOL_INDEX {
                             continue;
                         }
+                        if self.show_grids && i > GRIDS_TOOL_INDEX {
+                            continue;
+                        }
 
                         let is_indicator_btn = i == INDICATOR_TOOL_INDEX;
                         let is_pencil_btn = i == PENCIL_TOOL_INDEX;
+                        let is_grids_btn = i == GRIDS_TOOL_INDEX;
                         let is_active = if is_indicator_btn {
                             self.show_indicators
                         } else if is_pencil_btn {
                             self.show_drawings || self.active_drawing.is_some()
+                        } else if is_grids_btn {
+                            self.show_grids
+                                || !matches!(self.active_grid_layout, GridLayout::Single)
                         } else {
                             self.active_tool == i
                         };
@@ -155,8 +211,22 @@ impl ChartToolbar {
                         if btn.clicked() {
                             if is_indicator_btn {
                                 self.show_indicators = !self.show_indicators;
+                                if self.show_indicators {
+                                    self.show_drawings = false;
+                                    self.show_grids = false;
+                                }
                             } else if is_pencil_btn {
                                 self.show_drawings = !self.show_drawings;
+                                if self.show_drawings {
+                                    self.show_indicators = false;
+                                    self.show_grids = false;
+                                }
+                            } else if is_grids_btn {
+                                self.show_grids = !self.show_grids;
+                                if self.show_grids {
+                                    self.show_indicators = false;
+                                    self.show_drawings = false;
+                                }
                             } else {
                                 self.active_tool = i;
                             }
@@ -176,6 +246,16 @@ impl ChartToolbar {
                             draw_drawings_inline(ui, &mut self.active_drawing);
                         }
 
+                        if is_grids_btn && self.show_grids {
+                            draw_grids_inline(
+                                ui,
+                                self.active_grid_layout,
+                                &mut self.pending_grid_layout,
+                                self.active_sync_flags,
+                                &mut self.pending_sync_flags,
+                            );
+                        }
+
                         if i == INDICATOR_INSERT_AFTER && self.show_indicators {
                             if let Some(ev) = self.indicator_bar.show_inline(ui, manager) {
                                 bar_event = Some(ev);
@@ -185,6 +265,7 @@ impl ChartToolbar {
                         if SEPARATORS.contains(&i)
                             && !(i == INDICATOR_INSERT_AFTER && self.show_indicators)
                             && !(i == PENCIL_TOOL_INDEX && self.show_drawings)
+                            && !(i == GRIDS_TOOL_INDEX && self.show_grids)
                         {
                             ui.add_space(2.0);
                             let (rect, _) =
@@ -193,6 +274,7 @@ impl ChartToolbar {
                             ui.add_space(2.0);
                         }
                     }
+
                 });
             });
 
@@ -206,35 +288,90 @@ impl ChartToolbar {
     }
 }
 
-/// Render the timeframe selector — a compact pill showing the current
-/// timeframe's short label (e.g. "1D"). Click opens a popup with all
-/// available timeframes; selecting one updates `*timeframe`.
-fn draw_timeframe_selector(ui: &mut egui::Ui, timeframe: &mut Timeframe) {
-    let btn = ui.add(
-        egui::Button::new(
-            RichText::new(timeframe.short_label())
-                .size(12.0)
-                .color(ICON_HOVER),
-        )
-        .fill(ICON_ACTIVE_BG)
-        .corner_radius(CornerRadius::same(4))
-        .min_size(Vec2::new(36.0, 24.0)),
-    );
-    if btn.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    egui::Popup::from_toggle_button_response(&btn)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-        .show(|ui| {
-            ui.set_min_width(120.0);
-            for tf in Timeframe::ALL {
-                let selected = *timeframe == *tf;
-                let label = format!("{}  {}", tf.short_label(), tf.long_label());
-                if ui.selectable_label(selected, label).clicked() {
-                    *timeframe = *tf;
-                }
-            }
+/// (layout, label, tooltip) for each option in the inline grid bar.
+const GRID_OPTIONS: &[(GridLayout, &str, &str)] = &[
+    (GridLayout::Single, "▢", "Single"),
+    (GridLayout::Horizontal2, "▥", "1×2"),
+    (GridLayout::Vertical2, "▤", "2×1"),
+    (GridLayout::Grid1x3, "▥▥▥", "1×3"),
+    (GridLayout::Grid3x1, "▤▤▤", "3×1"),
+    (GridLayout::Grid2x2, "▦", "2×2"),
+];
+
+/// Render the grids bar inline next to the grids button. Mirrors the shape of
+/// `draw_drawings_inline` — a separator, one button per layout (with a
+/// tooltip), and the active layout highlighted.
+fn draw_grids_inline(
+    ui: &mut egui::Ui,
+    active: GridLayout,
+    pending: &mut Option<GridLayout>,
+    sync: SyncFlags,
+    pending_sync: &mut Option<SyncFlags>,
+) {
+    ui.add_space(4.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, BORDER);
+    ui.add_space(4.0);
+
+    for (layout, label, tip) in GRID_OPTIONS {
+        let is_active = active == *layout;
+        let fill = if is_active {
+            ICON_ACTIVE_BG
+        } else {
+            Color32::TRANSPARENT
+        };
+        let color = if is_active { ICON_HOVER } else { ICON_COLOR };
+
+        let btn = ui.add(
+            egui::Button::new(RichText::new(*label).size(13.0).color(color))
+                .fill(fill)
+                .corner_radius(CornerRadius::same(4))
+                .min_size(Vec2::new(34.0, 28.0)),
+        );
+
+        if btn.hovered() && !is_active {
+            let rect = btn.rect;
+            ui.painter().rect_filled(rect, 4.0, HOVER_BG);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                *label,
+                egui::FontId::proportional(13.0),
+                ICON_HOVER,
+            );
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        if btn.clicked() && !is_active {
+            *pending = Some(*layout);
+        }
+
+        btn.clone().on_hover_ui(|ui| {
+            ui.label(RichText::new(*tip).size(11.0));
         });
+    }
+
+    // Sync checkboxes — only meaningful once we're in a multi layout, since a
+    // single pane has nothing to sync against.
+    if matches!(active, GridLayout::Single) {
+        return;
+    }
+
+    ui.add_space(4.0);
+    let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(sep_rect, 0.0, BORDER);
+    ui.add_space(4.0);
+
+    ui.label(RichText::new("Sync:").size(11.0).color(ICON_COLOR));
+
+    let mut next = sync;
+    ui.checkbox(&mut next.symbol, "Symbol");
+    ui.checkbox(&mut next.time, "Time");
+    ui.checkbox(&mut next.indicators, "Indicators");
+    ui.checkbox(&mut next.crosshair, "Crosshair");
+    if next != sync {
+        *pending_sync = Some(next);
+    }
 }
 
 /// Render the drawings bar inline next to the pencil button. Mirrors the shape

@@ -5,6 +5,16 @@ use zaned_chart_core::{CandleData, ComputedSeries, InputSpec, ParamValues};
 use super::registry;
 use super::trait_def::{Indicator, RenderTarget};
 
+/// One mutation to an `IndicatorManager`'s active list, recorded into a
+/// frame-local buffer so `MultiChartWidget` can mirror changes across panes
+/// when Indicators-sync is on.
+#[derive(Debug, Clone)]
+pub enum IndicatorEvent {
+    Added { def_id: &'static str, params: ParamValues },
+    Removed { def_id: &'static str },
+    ParamsUpdated { def_id: &'static str, params: ParamValues },
+}
+
 const MAX_RECENTS: usize = 7;
 
 pub struct ActiveIndicator {
@@ -37,6 +47,7 @@ pub struct IndicatorManager {
     /// replays this set; any direct `add` discards it.
     stashed: HashMap<&'static str, Vec<ParamValues>>,
     next_id: u64,
+    event_buffer: Vec<IndicatorEvent>,
 }
 
 impl Default for IndicatorManager {
@@ -46,6 +57,7 @@ impl Default for IndicatorManager {
             recents: VecDeque::new(),
             stashed: HashMap::new(),
             next_id: 1,
+            event_buffer: Vec::new(),
         }
     }
 }
@@ -59,6 +71,10 @@ impl IndicatorManager {
         self.stashed.remove(def.id);
         let id = self.next_id;
         self.next_id += 1;
+        self.event_buffer.push(IndicatorEvent::Added {
+            def_id: def.id,
+            params: params.clone(),
+        });
         self.active.push(ActiveIndicator {
             instance_id: id,
             def_id: def.id,
@@ -70,7 +86,11 @@ impl IndicatorManager {
     }
 
     pub fn remove(&mut self, instance_id: u64) {
-        self.active.retain(|a| a.instance_id != instance_id);
+        if let Some(pos) = self.active.iter().position(|a| a.instance_id == instance_id) {
+            let def_id = self.active[pos].def_id;
+            self.active.remove(pos);
+            self.event_buffer.push(IndicatorEvent::Removed { def_id });
+        }
     }
 
     /// Remove every active instance of the given def_id, stashing the cleared
@@ -88,6 +108,18 @@ impl IndicatorManager {
             .map(|a| a.params.clone())
             .collect();
         self.stashed.insert(static_id, params);
+
+        // Record one Removed event per affected instance before the retain.
+        let removed_def_ids: Vec<&'static str> = self
+            .active
+            .iter()
+            .filter(|a| a.def_id == def_id)
+            .map(|a| a.def_id)
+            .collect();
+        for d in removed_def_ids {
+            self.event_buffer.push(IndicatorEvent::Removed { def_id: d });
+        }
+
         self.active.retain(|a| a.def_id != def_id);
     }
 
@@ -122,9 +154,17 @@ impl IndicatorManager {
             .iter_mut()
             .find(|a| a.instance_id == instance_id)
         {
-            a.params = params;
+            let def_id = a.def_id;
+            a.params = params.clone();
             a.cache = None;
+            self.event_buffer.push(IndicatorEvent::ParamsUpdated { def_id, params });
         }
+    }
+
+    /// Drain the event buffer. Called by `ChartWidget::take_change_events` once
+    /// per frame.
+    pub fn take_events(&mut self) -> Vec<IndicatorEvent> {
+        std::mem::take(&mut self.event_buffer)
     }
 
     pub fn ensure_computed(&mut self, data: &CandleData) {

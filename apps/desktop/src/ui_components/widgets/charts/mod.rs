@@ -15,15 +15,19 @@ mod util;
 
 use egui::mutex::Mutex;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
 
 use camera::Camera;
 pub use candle::{CandleData, JsonCandle, Timeframe};
+pub use controls::ToolbarUiState;
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
     DrawingsManager, HIT_TOLERANCE_PX, SelectionInput, ToolbarEvent, paint_handles, selection_step,
     show_toolbar, toolbar_anchor_rect,
 };
-use indicators::{self as ind, IndicatorManager, ParamValues};
+use indicators::{self as ind, IndicatorEvent, IndicatorManager, ParamValues};
 use interaction::InteractionState;
 use pane::SubPaneStack;
 use renderer::ChartCallback;
@@ -47,7 +51,11 @@ pub struct ChartWidget {
     timeframe: Timeframe,
     camera: Arc<Mutex<Camera>>,
     interaction: InteractionState,
-    initialized: Arc<Mutex<bool>>,
+    /// Unique id used to scope this chart's GPU resources in the shared
+    /// egui_wgpu callback resource map. Every pane needs its own slot,
+    /// otherwise the last-prepared pane's vertex/camera buffers visually
+    /// drive every other pane.
+    id: u64,
     sub_stack: SubPaneStack,
     toolbar: ChartToolbar,
     manager: IndicatorManager,
@@ -55,6 +63,33 @@ pub struct ChartWidget {
     drawings: DrawingsManager,
     drawing_settings_modal: DrawingSettingsModal,
     notification: Option<(String, std::time::Instant)>,
+    /// Cached cursor index from the most recent frame. `None` when the pointer
+    /// is not over the chart. Updated each `show()` call; read by sync passes.
+    last_cursor_idx: Option<usize>,
+    /// Set when an external caller invoked `set_data` and we want sync mirroring
+    /// to know about it. Drained by `take_change_events`.
+    pending_symbol_change: Option<CandleData>,
+    /// External date pushed into this pane (e.g. by Crosshair sync from another
+    /// pane). Painted as a dashed vertical line, no OHLC tooltip. Cleared each
+    /// frame after painting; sync passes set it again every frame.
+    ghost_cursor_date: Option<String>,
+    /// When true, all pointer-driven handlers (pan/zoom, drawing, price-axis
+    /// scaling) skip this frame. Set by `MultiChartWidget` while the user is
+    /// dragging a splitter — without it, the splitter hit zone and the chart's
+    /// interact rect overlap by 1 px, so any vertical jitter during a resize
+    /// hits the pan path and silently flips `auto_scale_y` off.
+    input_suppressed: bool,
+    /// When true, `show()` skips rendering the chart toolbar — `MultiChartWidget`
+    /// hoists the active pane's toolbar above all panes so it's shared across
+    /// the multi-chart layout instead of duplicated per pane.
+    suppress_toolbar: bool,
+}
+
+/// Mutations originating from this `ChartWidget` since the last drain.
+/// Consumed by `MultiChartWidget` to mirror changes onto sibling panes.
+pub struct ChangeEvents {
+    pub symbol_changed: Option<CandleData>,
+    pub indicator_events: Vec<IndicatorEvent>,
 }
 
 impl ChartWidget {
@@ -74,7 +109,7 @@ impl ChartWidget {
             data,
             camera: Arc::new(Mutex::new(camera)),
             interaction: InteractionState::default(),
-            initialized: Arc::new(Mutex::new(false)),
+            id: NEXT_CHART_ID.fetch_add(1, Ordering::Relaxed),
             sub_stack: SubPaneStack::default(),
             toolbar: ChartToolbar::default(),
             manager,
@@ -82,13 +117,18 @@ impl ChartWidget {
             drawings: DrawingsManager::default(),
             drawing_settings_modal: DrawingSettingsModal::default(),
             notification: None,
+            last_cursor_idx: None,
+            pending_symbol_change: None,
+            ghost_cursor_date: None,
+            input_suppressed: false,
+            suppress_toolbar: false,
         }
     }
 
     /// Switch the base timeframe (Daily / Weekly / Monthly). Rebuilds the
     /// active data from `raw_data` and re-fits the camera so the newly-
     /// aggregated range shows cleanly.
-    fn set_timeframe(&mut self, timeframe: Timeframe) {
+    pub fn set_timeframe(&mut self, timeframe: Timeframe) {
         if timeframe == self.timeframe {
             return;
         }
@@ -108,10 +148,27 @@ impl ChartWidget {
         camera.fit_to_data(&self.data);
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.dispatch_toolbar(ui);
+    /// Replace the underlying raw data (e.g. on a symbol change) and re-aggregate
+    /// to the current timeframe. Indicators are invalidated (will recompute against
+    /// the new series next frame); committed drawings are remapped by date and
+    /// any whose dates don't appear in the new data are dropped by the existing
+    /// remap path. Camera is refit so the new data shows cleanly.
+    pub fn set_data(&mut self, new_raw: CandleData) {
+        self.pending_symbol_change = Some(new_raw.clone());
+        self.raw_data = Arc::new(new_raw);
+        self.data = Arc::new(self.raw_data.aggregated(self.timeframe));
+        self.manager.invalidate_cache();
+        self.drawings.remap_to_data(&self.data);
+        let mut camera = self.camera.lock();
+        camera.fit_to_data(&self.data);
+    }
 
-        let (total_rect, chart_rect, pane_slots) = self.layout_rects(ui);
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        if !self.suppress_toolbar {
+            self.dispatch_toolbar(ui);
+        }
+
+        let (total_rect, chart_rect, pane_slots, footer_rect) = self.layout_rects(ui);
         self.update_camera_viewport(chart_rect);
 
         let modal_open = self.toolbar.indicator_modal.open
@@ -121,23 +178,24 @@ impl ChartWidget {
 
         let drawing_drag_active = !matches!(self.drawings.drag, drawings::SelectionDrag::None);
 
-        if !modal_open && !drawing_drag_active {
+        if !modal_open && !drawing_drag_active && !self.input_suppressed {
             self.handle_chart_interaction(ui, total_rect, chart_rect);
         }
 
         let full_rect = full_chart_rect(chart_rect, &pane_slots);
 
-        if !modal_open && drawing_tool_armed {
+        if !modal_open && drawing_tool_armed && !self.input_suppressed {
             self.handle_drawing_input(ui, chart_rect);
         } else if !drawing_tool_armed {
             self.drawings.cancel_draft();
-            if !modal_open {
+            if !modal_open && !self.input_suppressed {
                 self.handle_drawing_selection(ui, chart_rect, full_rect);
             }
         }
 
         self.manager.ensure_computed(&self.data);
         let cursor_idx = self.compute_cursor_idx(ui, chart_rect, &pane_slots);
+        self.last_cursor_idx = cursor_idx;
 
         self.paint_wgpu_candles(ui, chart_rect);
         self.paint_grid(ui, chart_rect, modal_open);
@@ -166,8 +224,177 @@ impl ChartWidget {
             .show(ui.ctx(), &mut self.drawings, &self.data);
         self.paint_crosshair(ui, chart_rect, full_rect);
 
+        if let Some(ref date) = self.ghost_cursor_date {
+            let camera = self.camera.lock();
+            crosshair::paint_ghost(ui.painter(), chart_rect, &camera, &self.data, date);
+        }
+        self.ghost_cursor_date = None;
+
         // Render notification toast
         self.paint_notification(ui, total_rect);
+
+        self.show_footer(ui, footer_rect);
+    }
+
+    pub fn timeframe(&self) -> Timeframe {
+        self.timeframe
+    }
+
+    /// Clone of the underlying raw data Arc — used when promoting Single → Multi
+    /// so the new `MultiChartWidget` shares the same source-of-truth.
+    pub fn raw_data_arc(&self) -> Arc<CandleData> {
+        self.raw_data.clone()
+    }
+
+    /// The symbol this chart is showing. `ChartWidget` doesn't currently track
+    /// a symbol field; returns `None` and the caller falls back to a default.
+    pub fn symbol(&self) -> Option<String> {
+        None
+    }
+
+    pub fn has_user_drawings(&self) -> bool {
+        !self.drawings.committed.is_empty()
+    }
+
+    pub fn has_non_default_indicators(&self) -> bool {
+        // "volume" is the default added in `ChartWidget::new`; anything else
+        // counts as user-added.
+        self.manager.active.iter().any(|a| a.def_id != "volume")
+    }
+
+    /// Date under the cursor as of the last frame, if the cursor was over the chart.
+    pub fn cursor_date(&self) -> Option<String> {
+        let idx = self.last_cursor_idx?;
+        self.data.date_for_index(idx)
+    }
+
+    /// Date range visible in the chart right now: `(start_date, end_date)`.
+    /// Returns `None` if the data is empty or the camera state is degenerate.
+    pub fn visible_date_range(&self) -> Option<(String, String)> {
+        if self.data.is_empty() {
+            return None;
+        }
+        let camera = self.camera.lock();
+        let start_idx = (camera.x_offset.max(0.0) as usize).min(self.data.len() - 1);
+        let visible_count = (camera.viewport.x as f64 / camera.x_scale).ceil() as usize;
+        let end_idx = (start_idx + visible_count).min(self.data.len() - 1);
+        drop(camera);
+        let start = self.data.date_for_index(start_idx)?;
+        let end = self.data.date_for_index(end_idx)?;
+        Some((start, end))
+    }
+
+    /// Position the camera so the given date range is exactly visible.
+    /// Uses the pane's own data, falling back to the nearest available date
+    /// when the target dates aren't in this pane's series (different timeframes
+    /// have different dates — a Wednesday exists in Daily but not Weekly).
+    pub fn apply_camera_for_date_range(&self, start_date: &str, end_date: &str) {
+        if self.data.is_empty() {
+            return;
+        }
+        let Some(start_idx) = self.data.nearest_index_for_date(start_date) else {
+            return;
+        };
+        let Some(end_idx) = self.data.nearest_index_for_date(end_date) else {
+            return;
+        };
+        let span = (end_idx as i64 - start_idx as i64).abs().max(1) as f64;
+        let mut camera = self.camera.lock();
+        if camera.viewport.x <= 0.0 {
+            return;
+        }
+        camera.x_scale = camera.viewport.x as f64 / span;
+        camera.x_offset = start_idx as f64;
+        camera.auto_scale_y(&self.data);
+    }
+
+    /// Drain mutations recorded since the last call. Always-safe to call —
+    /// returns empty `ChangeEvents` if nothing changed.
+    pub fn take_change_events(&mut self) -> ChangeEvents {
+        ChangeEvents {
+            symbol_changed: self.pending_symbol_change.take(),
+            indicator_events: self.manager.take_events(),
+        }
+    }
+
+    /// Show a "ghost" crosshair anchored at the given date, distinct from the
+    /// pane's own pointer-driven crosshair. Pass `None` to clear.
+    pub fn set_ghost_cursor(&mut self, date: Option<String>) {
+        self.ghost_cursor_date = date;
+    }
+
+    /// Drain the toolbar's multi-chart toggle request. Called by `MyApp` each
+    /// frame to know when to swap `ChartView` variants.
+    pub fn take_multi_chart_toggle_request(&mut self) -> bool {
+        let pending = self.toolbar.toggle_multi_chart_pending;
+        self.toolbar.toggle_multi_chart_pending = false;
+        pending
+    }
+
+    /// Drain the toolbar's grid layout request. Called by `MyApp` (single mode)
+    /// and `MultiChartWidget` (multi mode) so a click on the inline grid bar
+    /// can promote/demote between Single/Multi or just change the layout.
+    pub fn take_grid_layout_request(&mut self) -> Option<multi_charts::GridLayout> {
+        self.toolbar.pending_grid_layout.take()
+    }
+
+    /// Tell the toolbar which grid layout the enclosing `MultiChartWidget` is
+    /// currently using, so the inline grid bar can highlight it. `Single` for
+    /// non-multi charts.
+    pub fn set_active_grid_layout(&mut self, layout: multi_charts::GridLayout) {
+        self.toolbar.active_grid_layout = layout;
+    }
+
+    /// Tell the toolbar which sync flags the enclosing `MultiChartWidget` is
+    /// currently using, so the inline grid bar's checkboxes are checked
+    /// correctly. Defaults to all-off for non-multi charts.
+    pub fn set_active_sync_flags(&mut self, flags: multi_charts::SyncFlags) {
+        self.toolbar.active_sync_flags = flags;
+    }
+
+    /// Drain a sync-flags change requested via the inline grid bar.
+    pub fn take_sync_flags_request(&mut self) -> Option<multi_charts::SyncFlags> {
+        self.toolbar.pending_sync_flags.take()
+    }
+
+    /// Suppress pointer-driven input for this frame. Used by `MultiChartWidget`
+    /// while a splitter is being dragged so resize gestures don't bleed into
+    /// the chart's pan handler (which would otherwise flip `auto_scale_y` off).
+    pub fn set_input_suppressed(&mut self, suppressed: bool) {
+        self.input_suppressed = suppressed;
+    }
+
+    /// When true, `show()` skips its internal toolbar render. Used by
+    /// `MultiChartWidget` to hoist the active pane's toolbar above all panes.
+    pub fn set_suppress_toolbar(&mut self, suppressed: bool) {
+        self.suppress_toolbar = suppressed;
+    }
+
+    /// Render this chart's toolbar in an externally-provided `ui`. Used by
+    /// `MultiChartWidget` to display the active pane's toolbar above the
+    /// pane grid, so all panes share one toolbar instead of duplicating it.
+    pub fn show_toolbar(&mut self, ui: &mut egui::Ui) {
+        self.dispatch_toolbar(ui);
+    }
+
+    /// Snapshot of toolbar UI state (which inline bar is open, current tool).
+    /// Used by `MultiChartWidget` to keep all panes in sync so swapping the
+    /// active pane (cursor-driven) doesn't drop whichever inline bar the
+    /// user just opened.
+    pub fn toolbar_ui_state(&self) -> controls::ToolbarUiState {
+        self.toolbar.ui_state()
+    }
+
+    pub fn set_toolbar_ui_state(&mut self, state: controls::ToolbarUiState) {
+        self.toolbar.set_ui_state(state);
+    }
+
+    pub fn manager(&self) -> &IndicatorManager {
+        &self.manager
+    }
+
+    pub fn manager_mut(&mut self) -> &mut IndicatorManager {
+        &mut self.manager
     }
 
     fn dispatch_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -176,22 +403,31 @@ impl ChartWidget {
                 self.manager.remove(id);
             }
         }
-        // Pick up user-driven timeframe changes from the toolbar.
-        if self.toolbar.timeframe != self.timeframe {
-            self.set_timeframe(self.toolbar.timeframe);
-        }
     }
 
     fn layout_rects(
         &mut self,
         ui: &mut egui::Ui,
-    ) -> (egui::Rect, egui::Rect, Vec<(egui::Rect, egui::Rect)>) {
+    ) -> (egui::Rect, egui::Rect, Vec<(egui::Rect, egui::Rect)>, egui::Rect) {
+        const FOOTER_H: f32 = 28.0;
         let available = ui.available_size();
-        let (total_rect, _response) = ui.allocate_exact_size(available, egui::Sense::hover());
+        let (full_rect, _response) = ui.allocate_exact_size(available, egui::Sense::hover());
+        // Reserve a footer strip at the bottom for the Interval / Auto controls.
+        // Chart panes shrink accordingly; the rest of the painting code only
+        // sees the shrunken total_rect.
+        let footer_h = FOOTER_H.min(full_rect.height() * 0.5);
+        let total_rect = egui::Rect::from_min_max(
+            full_rect.min,
+            egui::pos2(full_rect.max.x, full_rect.max.y - footer_h),
+        );
+        let footer_rect = egui::Rect::from_min_max(
+            egui::pos2(full_rect.min.x, full_rect.max.y - footer_h),
+            full_rect.max,
+        );
         let n_panes = self.manager.sub_pane_count();
         self.sub_stack.sync_len(n_panes);
         let (chart_rect, pane_slots) = self.sub_stack.split(total_rect, n_panes);
-        (total_rect, chart_rect, pane_slots)
+        (total_rect, chart_rect, pane_slots, footer_rect)
     }
 
     fn update_camera_viewport(&self, chart_rect: egui::Rect) {
@@ -245,9 +481,9 @@ impl ChartWidget {
         ])
         .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
         let callback = ChartCallback {
+            id: self.id,
             camera: self.camera.clone(),
             data: self.data.clone(),
-            initialized: self.initialized.clone(),
             target_format,
         };
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
@@ -256,15 +492,87 @@ impl ChartWidget {
     }
 
     fn paint_grid(&self, ui: &mut egui::Ui, chart_rect: egui::Rect, modal_open: bool) {
-        if !modal_open {
+        if !modal_open && !self.input_suppressed {
             let mut camera = self.camera.lock();
             grid::handle_price_axis_drag(ui, chart_rect, &mut camera);
         }
-        let mut camera = self.camera.lock();
+        let camera = self.camera.lock();
         grid::paint_price_grid(ui, chart_rect, &camera, &self.data);
         grid::paint_time_grid(ui, chart_rect, &camera, &self.data);
-        if !modal_open {
-            grid::paint_auto_button(ui, chart_rect, &mut camera);
+    }
+
+    /// Render the bottom-of-chart footer: Interval (timeframe) buttons on the
+    /// left, Auto (y-axis auto-scale) toggle on the right.
+    fn show_footer(&mut self, ui: &mut egui::Ui, footer_rect: egui::Rect) {
+        use eframe::egui::{Align, Color32, CornerRadius, Layout, RichText, Vec2};
+
+        const ICON_COLOR: Color32 = Color32::from_rgb(120, 120, 130);
+        const ICON_HOVER: Color32 = Color32::from_rgb(200, 200, 210);
+        const ACCENT: Color32 = Color32::from_rgb(78, 205, 196);
+        const ACTIVE_BG: Color32 = Color32::from_rgb(35, 35, 40);
+        const BORDER: Color32 = Color32::from_rgb(50, 50, 55);
+
+        let mut new_timeframe: Option<Timeframe> = None;
+        let current_tf = self.timeframe;
+
+        ui.allocate_ui_at_rect(footer_rect, |ui| {
+            ui.style_mut().interaction.tooltip_delay = 0.0;
+            ui.horizontal_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new("Interval:").size(11.0).color(ICON_COLOR));
+                ui.add_space(4.0);
+                for tf in Timeframe::ALL {
+                    let selected = current_tf == *tf;
+                    let color = if selected { ACCENT } else { ICON_COLOR };
+                    let fill = if selected { ACTIVE_BG } else { Color32::TRANSPARENT };
+                    let btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(tf.short_label()).size(11.0).color(color),
+                        )
+                        .fill(fill)
+                        .corner_radius(CornerRadius::same(3))
+                        .min_size(Vec2::new(28.0, 20.0)),
+                    );
+                    if btn.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if btn.clicked() && !selected {
+                        new_timeframe = Some(*tf);
+                    }
+                    btn.on_hover_text(tf.long_label());
+                }
+
+                // Auto toggle on the far right.
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    let mut camera = self.camera.lock();
+                    let is_auto = camera.auto_scale_y;
+                    let color = if is_auto { ACCENT } else { ICON_HOVER };
+                    let fill = if is_auto { Color32::TRANSPARENT } else { ACTIVE_BG };
+                    let stroke = if is_auto {
+                        egui::Stroke::new(1.0, ACCENT)
+                    } else {
+                        egui::Stroke::new(0.5, BORDER)
+                    };
+                    let btn = ui.add(
+                        egui::Button::new(RichText::new("Auto").size(10.0).color(color))
+                            .fill(fill)
+                            .stroke(stroke)
+                            .corner_radius(CornerRadius::same(3))
+                            .min_size(Vec2::new(40.0, 18.0)),
+                    );
+                    if btn.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if btn.clicked() {
+                        camera.auto_scale_y = !camera.auto_scale_y;
+                    }
+                });
+            });
+        });
+
+        if let Some(tf) = new_timeframe {
+            self.set_timeframe(tf);
         }
     }
 
