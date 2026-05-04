@@ -16,9 +16,9 @@ use futures::StreamExt;
 use markets::streaming::{MarketHoursType, PriceStream, PriceUpdate, QuoteType};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
-use crate::protocol::BarPayload;
-use crate::redis_state::RedisState;
-use crate::subscriptions::Subscriptions;
+use super::protocol::BarPayload;
+use super::redis_state::RedisState;
+use super::subscriptions::Subscriptions;
 
 // ── Command channel ──────────────────────────────────────────────────────────
 

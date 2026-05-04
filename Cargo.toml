@@ -3,6 +3,5 @@ resolver = "2"
 members = [
     "apps/desktop", "apps/historical-service",
     "apps/server", "apps/symbol-service",
-    "apps/tick-service",
     "crates/*",
 ]

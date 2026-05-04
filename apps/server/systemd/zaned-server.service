@@ -1,15 +1,15 @@
 [Unit]
-Description=Zaned tick-service (real-time OHLCV aggregator + WebSocket fanout)
+Description=Zaned server (tick-service subsystem + WS fanout, /health endpoint)
 After=network-online.target redis.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/tick-service
+ExecStart=/usr/local/bin/zaned-server
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30
-EnvironmentFile=/etc/tick-service.env
+EnvironmentFile=/etc/zaned-server.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

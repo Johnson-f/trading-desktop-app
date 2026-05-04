@@ -25,7 +25,6 @@ fn apply_indicator_event(chart: &mut ChartWidget, ev: &super::indicators::Indica
         }
     }
 }
-use egui::mutex::Mutex;
 use std::sync::Arc;
 
 /// Axis along which a splitter divides the layout.
@@ -88,8 +87,6 @@ pub struct MultiChartWidget {
     sync_flags: SyncFlags,
     /// Which view is currently active/focused
     active_view: Option<usize>,
-    /// Layout selector modal state
-    layout_selector_open: bool,
     /// Splitter positions for resizable layouts (0.0 to 1.0)
     splitter_positions: Vec<f32>,
     /// While the user is dragging a splitter: `Some((axis, splitter_index))`.
@@ -127,7 +124,6 @@ impl MultiChartWidget {
             layout: GridLayout::Single,
             sync_flags: SyncFlags::default(),
             active_view: Some(0),
-            layout_selector_open: false,
             splitter_positions: vec![0.5],
             dragging_splitter: None,
             pending_grid_layout: None,
@@ -153,7 +149,6 @@ impl MultiChartWidget {
             layout: GridLayout::Single,
             sync_flags: SyncFlags::default(),
             active_view: Some(0),
-            layout_selector_open: false,
             splitter_positions: vec![],
             dragging_splitter: None,
             pending_grid_layout: None,
@@ -684,7 +679,7 @@ impl MultiChartWidget {
 
         // Show the chart. Wrap in push_id so multiple panes don't collide on
         // internal widget IDs (egui paints red overlays on duplicate IDs).
-        ui.allocate_ui_at_rect(inner_rect, |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(inner_rect), |ui| {
             ui.push_id(("multi_chart_pane", view_id), |ui| {
                 if let Some(view) = self.views.get_mut(view_id) {
                     view.chart.show(ui);
@@ -704,7 +699,7 @@ impl MultiChartWidget {
         );
         let icon = if view.maximized { "⊟" } else { "⊞" };
         let mut maximize_clicked = false;
-        ui.allocate_ui_at_rect(max_rect, |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(max_rect), |ui| {
             if ui.button(icon).clicked() {
                 maximize_clicked = true;
             }

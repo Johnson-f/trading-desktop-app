@@ -23,9 +23,9 @@ use redis::AsyncCommands;
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use tokio::sync::oneshot;
 
-use crate::coordinator::CoordCmd;
-use crate::protocol::{BarPayload, ClientMsg, ServerMsg};
-use crate::redis_state::{RedisState, updates_key};
+use super::coordinator::CoordCmd;
+use super::protocol::{BarPayload, ClientMsg, ServerMsg};
+use super::redis_state::{RedisState, updates_key};
 
 #[derive(Clone)]
 pub struct ServerState {

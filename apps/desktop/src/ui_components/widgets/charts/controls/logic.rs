@@ -461,8 +461,8 @@ fn draw_drawings_inline(ui: &mut egui::Ui, active_drawing: &mut Option<&'static 
     }
 }
 
-const MODAL_BG: Color32 = Color32::from_rgb(34, 34, 38);
-const MODAL_BORDER: Color32 = Color32::from_rgb(60, 60, 66);
+const MODAL_BG: Color32 = Color32::from_rgb(16, 16, 20);
+const MODAL_BORDER: Color32 = Color32::from_rgb(38, 38, 44);
 const MODAL_TEXT: Color32 = Color32::from_rgb(230, 230, 234);
 const MODAL_TEXT_MUTED: Color32 = Color32::from_rgb(170, 170, 178);
 const MODAL_PRIMARY_BG: Color32 = Color32::from_rgb(58, 130, 246);
@@ -474,7 +474,11 @@ fn show_clear_drawings_modal(
     open: &mut bool,
     confirmed: &mut bool,
 ) {
-    let modal = egui::Modal::new(egui::Id::new("clear_drawings_modal")).show(ctx, |ui| {
+    // Strip egui's default Modal frame (light stroke + shadow); we draw our
+    // own dark frame inside.
+    let modal = egui::Modal::new(egui::Id::new("clear_drawings_modal"))
+        .frame(egui::Frame::NONE)
+        .show(ctx, |ui| {
         ui.set_min_width(440.0);
         egui::Frame::new()
             .fill(MODAL_BG)

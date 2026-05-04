@@ -73,18 +73,18 @@ All frames are JSON.
 ## Running locally
 
 ```bash
-cp apps/tick-service/.env.example apps/tick-service/.env
-$EDITOR apps/tick-service/.env
-cargo run -p tick-service
+cp apps/server/.env.example apps/server/.env
+$EDITOR apps/server/.env
+cargo run -p zaned-server
 ```
 
-The binary auto-loads `apps/tick-service/.env`. WS server listens on `TICK_SERVICE_WS_BIND` (`0.0.0.0:8765` by default).
+The binary auto-loads `apps/server/.env`. WS server listens on `TICK_SERVICE_WS_BIND` (`0.0.0.0:8765` by default).
 
 ## Smoke testing
 
 ```bash
 # 1. Run the service
-cargo run -p tick-service
+cargo run -p zaned-server
 
 # 2. In another terminal, connect a WebSocket client (e.g. websocat)
 websocat ws://localhost:8765/ws
@@ -107,30 +107,30 @@ redis-cli XRANGE tick:updates:AAPL - +
 ```bash
 # Build a release binary on the VPS
 cd /opt/zaned-historical    # same checkout as historical-service
-cargo build -p tick-service --release
-install -m 755 target/release/tick-service /usr/local/bin/tick-service
+cargo build -p zaned-server --release
+install -m 755 target/release/tick-service /usr/local/bin/zaned-server
 
 # Env file
-cat > /etc/tick-service.env << 'EOF'
+cat > /etc/zaned-server.env << 'EOF'
 REDIS_URL=redis://:johnson@localhost:6379
 MAX_WARM_SYMBOLS=50
 TICK_SERVICE_WS_BIND=0.0.0.0:8765
 RUST_LOG=tick_service=info
 EOF
-chmod 600 /etc/tick-service.env
+chmod 600 /etc/zaned-server.env
 
 # systemd unit
-install -m 644 apps/tick-service/systemd/tick-service.service /etc/systemd/system/
+install -m 644 apps/server/systemd/zaned-server.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now tick-service
-journalctl -u tick-service -f
+systemctl enable --now zaned-server
+journalctl -u zaned-server -f
 ```
 
 ## Inspecting state
 
 ```bash
 # Live tail
-ssh myserver 'journalctl -u tick-service -f'
+ssh myserver 'journalctl -u zaned-server -f'
 
 # Active symbol set
 ssh myserver 'docker exec redis redis-cli SMEMBERS tick:active'

@@ -14,7 +14,7 @@ use chrono_tz::America::New_York;
 use redis::{AsyncCommands, Script, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::BarPayload;
+use super::protocol::BarPayload;
 
 pub fn current_key(symbol: &str) -> String {
     format!("tick:current:{symbol}")

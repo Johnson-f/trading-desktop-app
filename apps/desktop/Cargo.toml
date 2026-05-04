@@ -11,7 +11,7 @@ zaned-database = { path = "../../crates/database" }
 eframe = "0.34.1"
 egui = "0.34.1"
 egui-phosphor = "0.12"
-tokio = { version = "1.50", features = ["rt-multi-thread"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
 wgpu = "29"
 egui-wgpu = "0.34"
 bytemuck = { version = "1", features = ["derive"] }
@@ -21,3 +21,17 @@ chrono = "0.4"
 kurbo = "0.13.0"
 dirs = "5.0"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+oauth2 = "5"
+webbrowser = "1"
+keyring = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.8"
+anyhow = "1"
+tracing = "0.1"
+url = "2"
+rand = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
+urlencoding = "2"
+dotenvy = "0.15"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

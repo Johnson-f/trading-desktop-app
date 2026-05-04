@@ -1,3 +1,4 @@
+mod auth;
 mod components;
 mod ui_components;
 
@@ -22,6 +23,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get tokio runtime handle for async operations
     let runtime_handle = tokio::runtime::Handle::current();
+
+    // Auth bootstrap: load Clerk env, build the shared state, attempt to
+    // restore a session from the keychain, and spawn the refresh worker.
+    // The OAuth flow itself runs lazily when the user clicks Sign in.
+    // Try the crate's own .env first (apps/desktop/.env), then fall back to
+    // any ambient .env in the current working directory.
+    let crate_env = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if dotenvy::from_path(&crate_env).is_err() {
+        let _ = dotenvy::dotenv();
+    }
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "zaned=info,Zaned=info".into()),
+        )
+        .init();
+
+    let clerk_cfg = auth::config::ClerkConfig::from_env()?;
+    let auth_state = auth::AuthStateHandle::new(auth::AuthState::Unauthenticated);
+
+    if let Some(refresh) = auth::storage::load_refresh_token()? {
+        let cfg = clerk_cfg.clone();
+        let state = auth_state.clone();
+        runtime_handle.spawn(async move {
+            match auth::flow::refresh(&cfg, &refresh).await {
+                Ok(set) => {
+                    tracing::info!("restored session from keychain");
+                    state.set(auth::AuthState::from(set)).await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "keychain refresh failed; user must re-sign-in");
+                    let _ = auth::storage::delete_refresh_token();
+                    state.set(auth::AuthState::Unauthenticated).await;
+                }
+            }
+        });
+    }
+
+    auth::refresh::spawn(clerk_cfg.clone(), auth_state.clone());
 
     // Initialize drawing defaults with database
     ui_components::widgets::charts::drawings::init_with_database(
@@ -51,8 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             visuals.faint_bg_color = bg;
             cc.egui_ctx.set_visuals(visuals);
 
-            // Store database pool and runtime handle in the app
-            Ok(Box::new(MyApp::new(db_pool, runtime_handle)))
+            Ok(Box::new(MyApp::new(auth_state)))
         }),
     )?;
 
@@ -87,16 +127,15 @@ struct MyApp {
     main_sidebar: MainSidebar,
     mini_sidebar: MiniSidebar,
     chart: Option<ChartView>,
-    db_pool: sqlx::SqlitePool,
-    runtime_handle: tokio::runtime::Handle,
     /// When set, user clicked the multi-chart toggle while in Multi mode AND
     /// other panes have user content. We show a confirmation modal before
     /// dropping their work.
     pending_collapse_confirm: bool,
+    auth_state: auth::AuthStateHandle,
 }
 
 impl MyApp {
-    fn new(db_pool: sqlx::SqlitePool, runtime_handle: tokio::runtime::Handle) -> Self {
+    fn new(auth_state: auth::AuthStateHandle) -> Self {
         let mut chart = None;
         let json_str = std::fs::read_to_string("AAPL.json").unwrap_or_default();
         if !json_str.is_empty() {
@@ -117,15 +156,44 @@ impl MyApp {
             main_sidebar: MainSidebar::default(),
             mini_sidebar: MiniSidebar::default(),
             chart,
-            db_pool,
-            runtime_handle,
             pending_collapse_confirm: false,
+            auth_state,
         }
     }
 }
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // If unauthenticated, render the login screen and skip the rest.
+        if !matches!(
+            self.auth_state.blocking_snapshot(),
+            crate::auth::AuthState::Authenticated { .. }
+        ) {
+            let cfg = std::env::var("CLERK_ISSUER")
+                .and_then(|_| std::env::var("CLERK_CLIENT_ID"))
+                .ok()
+                .and_then(|_| crate::auth::config::ClerkConfig::from_env().ok());
+            if let Some(cfg) = cfg {
+                let runtime = tokio::runtime::Handle::current();
+                let screen = crate::auth::screen::LoginScreen::new(
+                    cfg,
+                    self.auth_state.clone(),
+                    runtime,
+                );
+                screen.show(ui.ctx());
+            } else {
+                #[allow(deprecated)]
+                egui::CentralPanel::default().show(ui.ctx(), |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(120.0);
+                        ui.heading("Auth misconfigured");
+                        ui.label("Set CLERK_ISSUER and CLERK_CLIENT_ID in apps/desktop/.env and restart.");
+                    });
+                });
+            }
+            return;
+        }
+
         self.top_header.show(ui);
 
         let bg = egui::Color32::from_rgb(0, 0, 0);

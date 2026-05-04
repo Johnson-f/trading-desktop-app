@@ -1,4 +1,4 @@
-use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke};
+use egui::{Color32, CornerRadius, Painter, Rect, Stroke};
 use kurbo::{BezPath, Point};
 
 use super::super::super::camera::Camera;
@@ -39,9 +39,6 @@ impl DrawingTool for Rectangle {
     }
     fn display_name(&self) -> &'static str {
         NAME
-    }
-    fn icon(&self) -> &'static str {
-        ICON
     }
 
     fn handle_input(

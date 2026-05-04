@@ -427,7 +427,7 @@ impl DrawingSettingsModal {
                         .color(TEXT_MUTED)
                         .size(11.0),
                 );
-                let mut row = |ui: &mut egui::Ui,
+                let row = |ui: &mut egui::Ui,
                                label: &str,
                                color: &mut zaned_chart_core::Rgba|
                  -> bool {

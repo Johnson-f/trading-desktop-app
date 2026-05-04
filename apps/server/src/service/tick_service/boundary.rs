@@ -15,9 +15,9 @@ use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::Mutex;
 
-use crate::protocol::BarPayload;
-use crate::redis_state::RedisState;
-use crate::subscriptions::Subscriptions;
+use super::protocol::BarPayload;
+use super::redis_state::RedisState;
+use super::subscriptions::Subscriptions;
 
 /// Wait until the next minute boundary plus a small grace period (1s) so
 /// late ticks of the just-completed minute have time to land.

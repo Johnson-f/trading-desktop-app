@@ -195,31 +195,6 @@ pub fn set_user_default(style: DrawingStyle) -> Result<(), String> {
     Ok(())
 }
 
-/// Get the current user default style, or None if not set.
-pub fn get_user_default() -> Option<DrawingStyle> {
-    USER_DEFAULT_STYLE.read().ok().and_then(|guard| *guard)
-}
-
-/// Reset to system defaults.
-pub fn reset_to_system_default() -> Result<(), String> {
-    if let Ok(mut guard) = USER_DEFAULT_STYLE.write() {
-        *guard = None;
-    }
-
-    // Delete from database
-    if let (Ok(pool_guard), Ok(handle_guard)) = (DB_POOL.read(), RUNTIME_HANDLE.read()) {
-        if let (Some(pool), Some(handle)) = (pool_guard.as_ref(), handle_guard.as_ref()) {
-            let pool_clone = pool.clone();
-            handle.spawn(async move {
-                if let Err(e) = delete_drawing_defaults(&pool_clone).await {
-                    eprintln!("Failed to delete drawing defaults from database: {}", e);
-                }
-            });
-        }
-    }
-
-    Ok(())
-}
 
 async fn load_from_database(pool: &sqlx::SqlitePool) -> Result<Option<DrawingStyle>, String> {
     let row: Option<(i64, i64, i64, i64, f64, String, f64, i64, i64)> = sqlx::query_as(
@@ -290,15 +265,6 @@ async fn save_drawing_defaults(pool: &sqlx::SqlitePool, style: DrawingStyle) -> 
     Ok(())
 }
 
-/// Delete drawing defaults from database
-async fn delete_drawing_defaults(pool: &sqlx::SqlitePool) -> Result<(), String> {
-    sqlx::query("DELETE FROM drawing_defaults WHERE id = 1")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Failed to delete from database: {}", e))?;
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

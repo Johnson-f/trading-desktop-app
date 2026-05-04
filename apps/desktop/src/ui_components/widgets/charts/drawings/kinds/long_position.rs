@@ -191,10 +191,6 @@ impl DrawingTool for LongPosition {
     fn display_name(&self) -> &'static str {
         NAME
     }
-    fn icon(&self) -> &'static str {
-        ICON
-    }
-
     fn handle_input(
         &self,
         ui: &egui::Ui,

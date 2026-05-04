@@ -17,8 +17,7 @@ pub use manager::{DrawingsManager, SelectionDrag};
 pub use registry::all;
 pub use selection::{SelectionInput, step as selection_step};
 pub use style::{
-    COLOR_PALETTE, DashStyle, DrawingStyle, get_user_default, init_with_database,
-    reset_to_system_default, set_user_default,
+    COLOR_PALETTE, DashStyle, DrawingStyle, init_with_database, set_user_default,
 };
 pub use toolbar::{ToolbarEvent, anchor_rect_for as toolbar_anchor_rect, show as show_toolbar};
 pub use trait_def::{

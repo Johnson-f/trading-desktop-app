@@ -50,7 +50,6 @@ pub enum InputResult {
 pub trait DrawingTool: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
-    fn icon(&self) -> &'static str;
 
     /// Process input while this tool is active. The tool mutates `draft` to
     /// track partial input (e.g. first click placed, cursor previewing the

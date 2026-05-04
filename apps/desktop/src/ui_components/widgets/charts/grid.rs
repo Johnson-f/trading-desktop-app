@@ -110,11 +110,18 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
         return;
     }
 
-    // Track what we've already labeled to avoid duplicates
+    // Smooth zoom transitions: instead of a binary "draw if gap > 60px",
+    // we fade labels in/out across a 30px window starting at the minimum
+    // gap. As the user zooms, a label whose gap to its predecessor is just
+    // above the threshold ramps from invisible → fully opaque, instead of
+    // popping in. Same idea on zoom-out.
     let mut last_month = String::new();
     let mut last_year = String::new();
     let mut last_label_x: f32 = f32::MIN;
-    let min_label_gap = 60.0; // minimum pixels between labels
+    let min_label_gap: f32 = 60.0;
+    let fade_range: f32 = 30.0;
+
+    let year_color = Color32::from_rgb(180, 180, 190);
 
     for i in start..end {
         if i >= data.dates.len() {
@@ -136,10 +143,17 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
             continue;
         }
 
+        let gap = x - last_label_x;
+        // 0 below min_gap, 1 above min_gap+fade_range, linear in between.
+        let alpha = ((gap - min_label_gap) / fade_range).clamp(0.0, 1.0);
+        if alpha <= 0.0 {
+            continue;
+        }
+
         let month_key = format!("{}-{}", yyyy, mm);
 
-        // Year marker: first candle of a new year
-        if yyyy != last_year && x - last_label_x > min_label_gap {
+        // Year marker takes priority over month marker on a Jan candle.
+        if yyyy != last_year {
             last_year = yyyy.to_string();
             last_month = month_key.clone();
             last_label_x = x;
@@ -149,13 +163,12 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
                 egui::Align2::CENTER_BOTTOM,
                 yyyy,
                 year_font.clone(),
-                Color32::from_rgb(180, 180, 190), // brighter for years
+                fade_color(year_color, alpha),
             );
             continue;
         }
 
-        // Month marker: first candle of a new month
-        if month_key != last_month && x - last_label_x > min_label_gap {
+        if month_key != last_month {
             last_month = month_key;
             last_label_x = x;
 
@@ -180,10 +193,18 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
                 egui::Align2::CENTER_BOTTOM,
                 month_name,
                 font.clone(),
-                LABEL_COLOR,
+                fade_color(LABEL_COLOR, alpha),
             );
         }
     }
+}
+
+/// Multiply a color's alpha by `factor` (clamped 0..1). Used to fade
+/// time-axis labels in/out as the user zooms.
+fn fade_color(base: Color32, factor: f32) -> Color32 {
+    let f = factor.clamp(0.0, 1.0);
+    let a = (base.a() as f32 * f) as u8;
+    Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a)
 }
 
 /// Handle drag on the price axis (right 65px) to manually scale Y. Returns true if auto_scale should be disabled.

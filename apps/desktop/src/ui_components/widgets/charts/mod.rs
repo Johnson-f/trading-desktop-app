@@ -21,7 +21,6 @@ static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
 
 use camera::Camera;
 pub use candle::{CandleData, JsonCandle, Timeframe};
-pub use controls::ToolbarUiState;
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
     DrawingsManager, HIT_TOLERANCE_PX, SelectionInput, ToolbarEvent, paint_handles, selection_step,
@@ -648,7 +647,7 @@ impl ChartWidget {
         let mut new_timeframe: Option<Timeframe> = None;
         let current_tf = self.timeframe;
 
-        ui.allocate_ui_at_rect(footer_rect, |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(footer_rect), |ui| {
             ui.style_mut().interaction.tooltip_delay = 0.0;
             ui.horizontal_centered(|ui| {
                 ui.add_space(8.0);
@@ -1094,7 +1093,7 @@ impl ChartWidget {
             )
         });
 
-        let key_pressed = if ui.ctx().wants_keyboard_input() {
+        let key_pressed = if ui.ctx().egui_wants_keyboard_input() {
             None
         } else {
             key_pressed
@@ -1299,7 +1298,7 @@ impl ChartWidget {
             // Draw background
             let padding = egui::Vec2::new(12.0, 8.0);
             let bg_rect = egui::Rect::from_center_size(text_pos, galley.size() + padding * 2.0);
-            painter.rect_filled(bg_rect, egui::Rounding::same(6), bg_color);
+            painter.rect_filled(bg_rect, egui::CornerRadius::same(6), bg_color);
 
             // Draw text
             painter.galley(
