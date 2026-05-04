@@ -1,0 +1,19 @@
+[Unit]
+Description=Zaned tick-service (real-time OHLCV aggregator + WebSocket fanout)
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tick-service
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30
+EnvironmentFile=/etc/tick-service.env
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
