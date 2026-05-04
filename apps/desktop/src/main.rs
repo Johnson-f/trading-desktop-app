@@ -103,7 +103,10 @@ impl MyApp {
             if let Ok(candles) = serde_json::from_str::<Vec<JsonCandle>>(&json_str) {
                 if !candles.is_empty() {
                     let data = CandleData::from_json(&candles);
-                    chart = Some(ChartView::Single(ChartWidget::new(data)));
+                    let mut widget = ChartWidget::new(data);
+                    // Bind the boot symbol so persisted drawings load on launch.
+                    widget.set_symbol("AAPL".to_string());
+                    chart = Some(ChartView::Single(widget));
                 }
             }
         }

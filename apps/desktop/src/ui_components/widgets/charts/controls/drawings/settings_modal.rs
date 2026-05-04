@@ -244,6 +244,7 @@ impl DrawingSettingsModal {
                     })
                     .collect();
             }
+            manager.dirty = true;
         }
         if should_close {
             self.open = false;

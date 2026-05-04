@@ -83,7 +83,23 @@ pub struct ChartWidget {
     /// hoists the active pane's toolbar above all panes so it's shared across
     /// the multi-chart layout instead of duplicated per pane.
     suppress_toolbar: bool,
+    /// Symbol this chart is bound to. Set via `set_symbol()` (called by the
+    /// containing widget when the symbol is known). Used as the persistence
+    /// key for committed drawings — `None` means "don't persist."
+    symbol: Option<String>,
+    /// In-flight async load triggered by `set_symbol`. Polled each frame; on
+    /// completion the result replaces `drawings.committed`.
+    pending_drawings_load: Option<tokio::sync::oneshot::Receiver<Vec<drawings::CommittedDrawing>>>,
+    /// Last instant we kicked off an async save. Used to debounce: we wait
+    /// `DRAWINGS_SAVE_DEBOUNCE` after the last mutation before saving so a
+    /// burst of edits (drag-resizing a trendline) coalesces into one write.
+    drawings_dirty_since: Option<std::time::Instant>,
+    /// Eye-icon flag: when true, committed drawings are skipped in the paint
+    /// loop and selection. Purely transient (does NOT persist).
+    drawings_hidden: bool,
 }
+
+const DRAWINGS_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Mutations originating from this `ChartWidget` since the last drain.
 /// Consumed by `MultiChartWidget` to mirror changes onto sibling panes.
@@ -122,6 +138,10 @@ impl ChartWidget {
             ghost_cursor_date: None,
             input_suppressed: false,
             suppress_toolbar: false,
+            symbol: None,
+            pending_drawings_load: None,
+            drawings_dirty_since: None,
+            drawings_hidden: false,
         }
     }
 
@@ -164,6 +184,11 @@ impl ChartWidget {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        // Per-frame lifecycle: pull in any completed async load, then schedule
+        // a save if drawings are dirty and the debounce window has elapsed.
+        self.poll_pending_drawings_load();
+        self.flush_dirty_drawings();
+
         if !self.suppress_toolbar {
             self.dispatch_toolbar(ui);
         }
@@ -184,11 +209,13 @@ impl ChartWidget {
 
         let full_rect = full_chart_rect(chart_rect, &pane_slots);
 
-        if !modal_open && drawing_tool_armed && !self.input_suppressed {
+        if !modal_open && drawing_tool_armed && !self.input_suppressed && !self.drawings_hidden {
             self.handle_drawing_input(ui, chart_rect);
         } else if !drawing_tool_armed {
             self.drawings.cancel_draft();
-            if !modal_open && !self.input_suppressed {
+            // When drawings are hidden, suppress selection too — clicking empty
+            // space shouldn't pick up an invisible shape.
+            if !modal_open && !self.input_suppressed && !self.drawings_hidden {
                 self.handle_drawing_selection(ui, chart_rect, full_rect);
             }
         }
@@ -217,9 +244,11 @@ impl ChartWidget {
         self.apply_legend_actions(pending);
 
         self.settings_modal.show(ui.ctx(), &mut self.manager);
-        self.paint_drawings(ui, chart_rect, full_rect);
-        self.paint_drawing_hover_tooltip(ui, chart_rect, full_rect);
-        self.paint_drawing_selection(ui, chart_rect, full_rect);
+        if !self.drawings_hidden {
+            self.paint_drawings(ui, chart_rect, full_rect);
+            self.paint_drawing_hover_tooltip(ui, chart_rect, full_rect);
+            self.paint_drawing_selection(ui, chart_rect, full_rect);
+        }
         self.drawing_settings_modal
             .show(ui.ctx(), &mut self.drawings, &self.data);
         self.paint_crosshair(ui, chart_rect, full_rect);
@@ -246,10 +275,102 @@ impl ChartWidget {
         self.raw_data.clone()
     }
 
-    /// The symbol this chart is showing. `ChartWidget` doesn't currently track
-    /// a symbol field; returns `None` and the caller falls back to a default.
+    /// The symbol this chart is showing. `None` until `set_symbol()` is called
+    /// (typically by the containing widget once the data is bound to a symbol).
     pub fn symbol(&self) -> Option<String> {
-        None
+        self.symbol.clone()
+    }
+
+    /// Bind this chart to a symbol. Triggers:
+    ///   1. Save of any current dirty drawings (under the previous symbol).
+    ///   2. Wipe of in-memory drawings.
+    ///   3. Async load of the new symbol's persisted drawings.
+    /// No-op when the symbol is unchanged.
+    pub fn set_symbol(&mut self, symbol: String) {
+        if self.symbol.as_deref() == Some(symbol.as_str()) {
+            return;
+        }
+        // Flush any pending dirty drawings under the OLD symbol before swapping.
+        if let Some(prev) = self.symbol.take() {
+            if self.drawings.dirty {
+                drawings::persistence::save_all(prev, self.drawings.committed.clone());
+                self.drawings.dirty = false;
+                self.drawings_dirty_since = None;
+            }
+        }
+        self.symbol = Some(symbol.clone());
+        self.drawings.replace_committed(Vec::new());
+        self.drawings_hidden = false;
+        // Kick off async load — `poll_pending_drawings_load` swaps the result
+        // into `drawings.committed` once the future resolves.
+        self.pending_drawings_load = Some(drawings::persistence::load_async(symbol));
+    }
+
+    /// Wipe every committed drawing on this chart (in-memory + DB).
+    /// Triggered by the toolbar's trash icon after the user confirms.
+    pub fn clear_all_drawings(&mut self) {
+        self.drawings.clear_all();
+        if let Some(symbol) = &self.symbol {
+            drawings::persistence::delete_all(symbol.clone());
+        }
+        // We've already deleted from the DB; suppress the debounced save that
+        // `clear_all` would otherwise schedule (it would be a redundant DELETE +
+        // empty-set INSERT).
+        self.drawings.dirty = false;
+        self.drawings_dirty_since = None;
+    }
+
+    /// Toggle the eye-icon visibility flag (UI-only, not persisted).
+    pub fn toggle_drawings_visibility(&mut self) {
+        self.drawings_hidden = !self.drawings_hidden;
+    }
+
+    pub fn drawings_hidden(&self) -> bool {
+        self.drawings_hidden
+    }
+
+    /// Drain a completed async drawings load, if one finished. Called once per
+    /// frame from `show()`.
+    fn poll_pending_drawings_load(&mut self) {
+        let Some(rx) = self.pending_drawings_load.as_mut() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(loaded) => {
+                self.drawings.replace_committed(loaded);
+                self.drawings.remap_to_data(&self.data);
+                self.pending_drawings_load = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                // Still loading; check again next frame.
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                // Sender dropped without sending — treat as empty.
+                self.pending_drawings_load = None;
+            }
+        }
+    }
+
+    /// If the manager is dirty AND it's been at least `DRAWINGS_SAVE_DEBOUNCE`
+    /// since the last edit, kick off an async save and clear the flag. Called
+    /// once per frame from `show()`.
+    fn flush_dirty_drawings(&mut self) {
+        if !self.drawings.dirty {
+            self.drawings_dirty_since = None;
+            return;
+        }
+        let Some(symbol) = self.symbol.clone() else {
+            // No symbol = nothing to persist against. Keep the flag set in case
+            // a symbol is bound later, but don't write.
+            return;
+        };
+        let now = std::time::Instant::now();
+        let since = self.drawings_dirty_since.get_or_insert(now);
+        if now.duration_since(*since) >= DRAWINGS_SAVE_DEBOUNCE {
+            drawings::persistence::save_all(symbol, self.drawings.committed.clone());
+            self.drawings.dirty = false;
+            self.drawings_dirty_since = None;
+        }
     }
 
     pub fn has_user_drawings(&self) -> bool {
@@ -398,10 +519,22 @@ impl ChartWidget {
     }
 
     fn dispatch_toolbar(&mut self, ui: &mut egui::Ui) {
+        // Mirror the chart's drawings-hidden flag back into the toolbar so the
+        // eye icon's active-state reflects reality.
+        self.toolbar.drawings_hidden = self.drawings_hidden;
+
         if let Some(ev) = self.toolbar.show(ui, &mut self.manager) {
             if let IndicatorBarEvent::Remove(id) = ev {
                 self.manager.remove(id);
             }
+        }
+
+        // Drain the toolbar's pending drawings actions.
+        if std::mem::take(&mut self.toolbar.pending_toggle_drawings_visibility) {
+            self.toggle_drawings_visibility();
+        }
+        if std::mem::take(&mut self.toolbar.pending_clear_drawings) {
+            self.clear_all_drawings();
         }
     }
 
@@ -1054,7 +1187,10 @@ impl ChartWidget {
         // Split-borrow `self.drawings` so show_toolbar can hold &mut drawing,
         // &mut drag, and &mut toolbar_offset simultaneously. The destructure
         // gives three disjoint &mut references, which is safe.
-        let event = {
+        // Snapshot style + kind_style before the popups so we can detect
+        // in-place mutations from the color/dash/width popups (which don't
+        // signal back through the event channel) and mark the manager dirty.
+        let (event, style_changed) = {
             let camera = self.camera.lock();
             let DrawingsManager {
                 committed,
@@ -1063,6 +1199,8 @@ impl ChartWidget {
                 ..
             } = &mut self.drawings;
             let drawing = &mut committed[idx];
+            let style_before = drawing.style;
+            let kind_style_before = drawing.kind_style;
             let (_rect, event) = show_toolbar(
                 ui,
                 tool.as_ref(),
@@ -1073,8 +1211,12 @@ impl ChartWidget {
                 toolbar_offset,
                 drag,
             );
-            event
+            let changed = drawing.style != style_before || drawing.kind_style != kind_style_before;
+            (event, changed)
         };
+        if style_changed {
+            self.drawings.dirty = true;
+        }
 
         // 3. Map toolbar events to manager mutations / modal opens.
         match event {

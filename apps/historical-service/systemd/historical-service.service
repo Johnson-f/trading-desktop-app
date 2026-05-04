@@ -1,0 +1,19 @@
+[Unit]
+Description=Zaned historical-service (1-min OHLCV backfill + daily catchup)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/historical-service
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=300
+EnvironmentFile=/etc/historical-service.env
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

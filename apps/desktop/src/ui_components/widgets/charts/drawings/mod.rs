@@ -2,6 +2,7 @@ mod handles_render;
 mod hit_test;
 mod kind_style;
 mod manager;
+pub(crate) mod persistence;
 mod registry;
 mod selection;
 mod style;

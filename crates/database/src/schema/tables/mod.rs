@@ -25,4 +25,19 @@ CREATE TABLE IF NOT EXISTS drawing_defaults (
     extend_right INTEGER NOT NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS drawings (
+    symbol           TEXT NOT NULL,
+    drawing_id       INTEGER NOT NULL,
+    def_id           TEXT NOT NULL,
+    points_json      TEXT NOT NULL,
+    point_dates_json TEXT NOT NULL,
+    style_json       TEXT NOT NULL,
+    kind_style_json  TEXT NOT NULL,
+    locked           INTEGER NOT NULL,
+    updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (symbol, drawing_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drawings_symbol ON drawings (symbol);
 "#;

@@ -5,7 +5,7 @@ use super::tables::SCHEMA_SQL;
 use crate::error::{DatabaseError, Result};
 
 /// Bump this when you change SCHEMA_SQL and want the diff re-applied.
-pub const SCHEMA_VERSION: &str = "0.1";
+pub const SCHEMA_VERSION: &str = "0.2";
 
 // ---------------------------------------------------------------------------
 // Public entry point

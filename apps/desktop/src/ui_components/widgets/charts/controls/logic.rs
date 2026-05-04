@@ -33,6 +33,8 @@ const TOOLBAR_ICONS: &[&str] = &[
 const INDICATOR_TOOL_INDEX: usize = 0;
 const PENCIL_TOOL_INDEX: usize = 1;
 const GRIDS_TOOL_INDEX: usize = 4;
+const EYE_TOOL_INDEX: usize = 13;
+const TRASH_TOOL_INDEX: usize = 14;
 const INDICATOR_INSERT_AFTER: usize = 10;
 const SEPARATORS: &[usize] = &[10];
 const TOOLTIPS: &[&str] = &[
@@ -49,8 +51,8 @@ const TOOLTIPS: &[&str] = &[
     "",
     "",
     "",
-    "",
-    "",
+    "Hide drawings",
+    "Delete all drawings",
 ];
 
 pub struct ChartToolbar {
@@ -80,6 +82,18 @@ pub struct ChartToolbar {
     /// Set when the user toggles a Sync checkbox in the inline grid bar.
     /// Drained by `ChartWidget::take_sync_flags_request()`.
     pub pending_sync_flags: Option<SyncFlags>,
+    /// Reflects whether the chart's drawings are currently hidden. Set
+    /// externally each frame so the eye icon can render the active state.
+    pub drawings_hidden: bool,
+    /// Set true for one frame when the user clicks the eye icon. Drained by
+    /// `ChartWidget` and applied to its visibility flag.
+    pub pending_toggle_drawings_visibility: bool,
+    /// Confirmation dialog for "delete all drawings". Toggled by the trash
+    /// icon; rendered in `ChartToolbar::show`.
+    pub clear_drawings_modal_open: bool,
+    /// Set true when the user confirms the "delete all drawings" dialog.
+    /// Drained by `ChartWidget` and applied to its drawings + database.
+    pub pending_clear_drawings: bool,
 }
 
 /// Slice of `ChartToolbar` state that needs to stay in sync across all panes
@@ -131,6 +145,10 @@ impl Default for ChartToolbar {
             pending_grid_layout: None,
             active_sync_flags: SyncFlags::default(),
             pending_sync_flags: None,
+            drawings_hidden: false,
+            pending_toggle_drawings_visibility: false,
+            clear_drawings_modal_open: false,
+            pending_clear_drawings: false,
         }
     }
 }
@@ -170,6 +188,8 @@ impl ChartToolbar {
                         let is_indicator_btn = i == INDICATOR_TOOL_INDEX;
                         let is_pencil_btn = i == PENCIL_TOOL_INDEX;
                         let is_grids_btn = i == GRIDS_TOOL_INDEX;
+                        let is_eye_btn = i == EYE_TOOL_INDEX;
+                        let is_trash_btn = i == TRASH_TOOL_INDEX;
                         let is_active = if is_indicator_btn {
                             self.show_indicators
                         } else if is_pencil_btn {
@@ -177,6 +197,10 @@ impl ChartToolbar {
                         } else if is_grids_btn {
                             self.show_grids
                                 || !matches!(self.active_grid_layout, GridLayout::Single)
+                        } else if is_eye_btn {
+                            self.drawings_hidden
+                        } else if is_trash_btn {
+                            self.clear_drawings_modal_open
                         } else {
                             self.active_tool == i
                         };
@@ -227,6 +251,10 @@ impl ChartToolbar {
                                     self.show_indicators = false;
                                     self.show_drawings = false;
                                 }
+                            } else if is_eye_btn {
+                                self.pending_toggle_drawings_visibility = true;
+                            } else if is_trash_btn {
+                                self.clear_drawings_modal_open = true;
                             } else {
                                 self.active_tool = i;
                             }
@@ -282,6 +310,17 @@ impl ChartToolbar {
 
         if let Some(IndicatorBarEvent::OpenModal) = &bar_event {
             self.indicator_modal.open = true;
+        }
+
+        // Render the "delete all drawings" confirmation. Sets
+        // `pending_clear_drawings = true` on confirm so the chart widget can
+        // drain it and apply the wipe.
+        if self.clear_drawings_modal_open {
+            show_clear_drawings_modal(
+                ui.ctx(),
+                &mut self.clear_drawings_modal_open,
+                &mut self.pending_clear_drawings,
+            );
         }
 
         bar_event
@@ -419,5 +458,79 @@ fn draw_drawings_inline(ui: &mut egui::Ui, active_drawing: &mut Option<&'static 
         btn.clone().on_hover_ui(|ui| {
             ui.label(RichText::new(def.name).size(11.0));
         });
+    }
+}
+
+const MODAL_BG: Color32 = Color32::from_rgb(34, 34, 38);
+const MODAL_BORDER: Color32 = Color32::from_rgb(60, 60, 66);
+const MODAL_TEXT: Color32 = Color32::from_rgb(230, 230, 234);
+const MODAL_TEXT_MUTED: Color32 = Color32::from_rgb(170, 170, 178);
+const MODAL_PRIMARY_BG: Color32 = Color32::from_rgb(58, 130, 246);
+const MODAL_PRIMARY_TEXT: Color32 = Color32::from_rgb(255, 255, 255);
+const MODAL_HELP_FG: Color32 = Color32::from_rgb(45, 145, 130);
+
+fn show_clear_drawings_modal(
+    ctx: &egui::Context,
+    open: &mut bool,
+    confirmed: &mut bool,
+) {
+    let modal = egui::Modal::new(egui::Id::new("clear_drawings_modal")).show(ctx, |ui| {
+        ui.set_min_width(440.0);
+        egui::Frame::new()
+            .fill(MODAL_BG)
+            .stroke(Stroke::new(1.0, MODAL_BORDER))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(egui::Margin::same(20))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Question-mark badge.
+                    let (badge_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(28.0, 28.0), egui::Sense::hover());
+                    ui.painter()
+                        .circle_stroke(badge_rect.center(), 13.0, Stroke::new(1.5, MODAL_HELP_FG));
+                    ui.painter().text(
+                        badge_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "?",
+                        egui::FontId::proportional(15.0),
+                        MODAL_HELP_FG,
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("Are you sure you want to delete all drawings in this chart?")
+                            .size(13.0)
+                            .color(MODAL_TEXT),
+                    );
+                });
+
+                ui.add_space(18.0);
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let primary = egui::Button::new(
+                        RichText::new("Delete").size(13.0).color(MODAL_PRIMARY_TEXT),
+                    )
+                    .fill(MODAL_PRIMARY_BG)
+                    .corner_radius(CornerRadius::same(6))
+                    .min_size(Vec2::new(96.0, 32.0));
+                    if ui.add(primary).clicked() {
+                        *confirmed = true;
+                        *open = false;
+                    }
+                    ui.add_space(8.0);
+                    let secondary = egui::Button::new(
+                        RichText::new("Cancel").size(13.0).color(MODAL_TEXT_MUTED),
+                    )
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(Stroke::new(1.0, MODAL_BORDER))
+                    .corner_radius(CornerRadius::same(6))
+                    .min_size(Vec2::new(96.0, 32.0));
+                    if ui.add(secondary).clicked() {
+                        *open = false;
+                    }
+                });
+            });
+    });
+    if modal.should_close() {
+        *open = false;
     }
 }

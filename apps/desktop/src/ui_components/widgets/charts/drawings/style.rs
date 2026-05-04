@@ -149,6 +149,9 @@ pub fn init_with_database(pool: sqlx::SqlitePool, runtime_handle: tokio::runtime
         *guard = Some(runtime_handle.clone());
     }
 
+    // Share with the per-symbol drawings persistence layer.
+    super::persistence::init(pool.clone(), runtime_handle.clone());
+
     // Load existing defaults from database
     runtime_handle.spawn(async move {
         match load_from_database(&pool).await {

@@ -11,6 +11,9 @@ pub struct DrawingsManager {
     pub toolbar_offset: Vec2,
     pub drag: SelectionDrag,
     next_id: u64,
+    /// Set true by every committed-Vec mutation. Drained by ChartWidget each
+    /// frame to schedule a debounced async save to SQLite.
+    pub dirty: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,6 +43,7 @@ impl Default for DrawingsManager {
             toolbar_offset: Vec2::ZERO,
             drag: SelectionDrag::None,
             next_id: 1,
+            dirty: false,
         }
     }
 }
@@ -66,6 +70,7 @@ impl DrawingsManager {
             locked: false,
         });
         self.draft = None;
+        self.dirty = true;
         id
     }
 
@@ -141,6 +146,7 @@ impl DrawingsManager {
             locked: false,
         });
         self.selected = Some(id);
+        self.dirty = true;
         Some(id)
     }
 
@@ -152,11 +158,13 @@ impl DrawingsManager {
         self.selected = None;
         self.toolbar_offset = Vec2::ZERO;
         self.drag = SelectionDrag::None;
+        self.dirty = true;
     }
 
     pub fn toggle_lock_selected(&mut self) {
         if let Some(d) = self.selected_drawing_mut() {
             d.locked = !d.locked;
+            self.dirty = true;
         }
     }
 
@@ -173,6 +181,7 @@ impl DrawingsManager {
             p.index += dx;
             p.price += dy;
         }
+        self.dirty = true;
     }
 
     /// Translate a specific drawing's handle to a new world position. Delegates
@@ -191,6 +200,7 @@ impl DrawingsManager {
             return;
         };
         tool.apply_handle_move(&mut self.committed[idx].points, handle_idx, target);
+        self.dirty = true;
     }
 
     /// Translate every point of a drawing by a world-space delta.
@@ -205,6 +215,35 @@ impl DrawingsManager {
             p.index += dx;
             p.price += dy;
         }
+        self.dirty = true;
+    }
+
+    /// Wholesale replacement (used by the "load from DB" path on symbol switch).
+    /// Does NOT mark dirty — we don't want to immediately re-save what we just
+    /// loaded.
+    pub fn replace_committed(&mut self, drawings: Vec<CommittedDrawing>) {
+        let max_id = drawings.iter().map(|d| d.id).max().unwrap_or(0);
+        self.committed = drawings;
+        self.selected = None;
+        self.draft = None;
+        self.drag = SelectionDrag::None;
+        self.toolbar_offset = Vec2::ZERO;
+        self.next_id = max_id + 1;
+        self.dirty = false;
+    }
+
+    /// Clear all committed drawings (used by the trash icon). Marks dirty so
+    /// the chart's debounced save fires and replicates the clear to the DB.
+    pub fn clear_all(&mut self) {
+        if self.committed.is_empty() {
+            return;
+        }
+        self.committed.clear();
+        self.selected = None;
+        self.draft = None;
+        self.drag = SelectionDrag::None;
+        self.toolbar_offset = Vec2::ZERO;
+        self.dirty = true;
     }
 }
 

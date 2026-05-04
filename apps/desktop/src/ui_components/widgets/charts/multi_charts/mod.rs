@@ -109,11 +109,14 @@ impl MultiChartWidget {
         let raw_data = Arc::new(data);
         let mut views = Vec::new();
 
-        // Start with a single daily view
+        // Start with a single daily view, bound to `symbol` so the chart's
+        // drawing-persistence layer can key off it.
+        let mut chart = ChartWidget::new((*raw_data).clone());
+        chart.set_symbol(symbol.clone());
         views.push(TimeframeView {
             id: 0,
             timeframe: Timeframe::Daily,
-            chart: ChartWidget::new((*raw_data).clone()),
+            chart,
             maximized: false,
         });
 
@@ -134,8 +137,9 @@ impl MultiChartWidget {
     /// Wrap an existing `ChartWidget` as the first (and only) pane of a new
     /// `MultiChartWidget`. State (camera, indicators, drawings) is preserved
     /// because the chart is moved in, not rebuilt.
-    pub fn from_chart(symbol: String, raw_data: Arc<CandleData>, chart: ChartWidget) -> Self {
+    pub fn from_chart(symbol: String, raw_data: Arc<CandleData>, mut chart: ChartWidget) -> Self {
         let timeframe = chart.timeframe();
+        chart.set_symbol(symbol.clone());
         let views = vec![TimeframeView {
             id: 0,
             timeframe,
@@ -254,11 +258,12 @@ impl MultiChartWidget {
     /// sync mode and the user has only the active pane in mind — call
     /// `set_symbol_for(view_id, ...)` for that case).
     pub fn set_symbol(&mut self, symbol: String, data: CandleData) {
-        self.symbol = symbol;
+        self.symbol = symbol.clone();
         self.raw_data = Arc::new(data);
         let raw = self.raw_data.as_ref().clone();
         for view in &mut self.views {
             view.chart.set_data(raw.clone());
+            view.chart.set_symbol(symbol.clone());
         }
     }
 
