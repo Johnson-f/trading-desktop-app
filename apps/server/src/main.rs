@@ -2,10 +2,11 @@ mod service;
 
 use anyhow::Result;
 use axum::{Json, Router, routing::get};
+use serde::Serialize;
 use tokio::signal::unix::{SignalKind, signal};
-use zaned_core::HealthResponse;
 
 use crate::service::auth;
+use crate::service::graphql;
 use crate::service::tick_service::config::Config;
 use crate::service::tick_service::runtime;
 
@@ -21,10 +22,13 @@ fn redact_redis_url(url: &str) -> String {
     url.to_string()
 }
 
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
 async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-    })
+    Json(HealthResponse { status: "ok" })
 }
 
 #[tokio::main]
@@ -49,7 +53,7 @@ async fn main() -> Result<()> {
         "zaned-server starting"
     );
 
-    let (tick_router, handles) = runtime::start(&cfg).await?;
+    let (tick_router, handles, cmd_tx, redis) = runtime::start(&cfg).await?;
 
     // Build the Clerk auth layer once and apply it to every protected
     // subtree. /health stays public so load balancers / monitoring can hit
@@ -57,8 +61,17 @@ async fn main() -> Result<()> {
     let clerk_layer = auth::runtime::from_env()?;
     tracing::info!("clerk auth layer initialized");
 
+    // Build the GraphQL schema. Reuse the Redis Arc returned by runtime::start
+    // instead of opening a second connection.
+    let schema = graphql::build_schema(redis, cfg.redis_url.clone(), cmd_tx);
+    let graphql_router = graphql::router(schema);
+
     let app = Router::new()
+        // /health is the public liveness probe (no auth, no GraphQL).
         .route("/health", get(health))
+        // GraphQL: /graphql + /graphql/ws + /graphiql, all behind Clerk.
+        .merge(graphql_router.layer(clerk_layer.clone()))
+        // Legacy WS — kept alive while desktop migrates.
         .merge(tick_router.layer(clerk_layer));
 
     let listener = tokio::net::TcpListener::bind(&cfg.ws_bind).await?;

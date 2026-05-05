@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-zaned-core = { path = "../../crates/core" }
 markets = { path = "../../crates/markets" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1.50", features = ["full"] }
@@ -23,6 +22,9 @@ async-trait = "0.1"
 dotenvy = "0.15"
 linked-hash-map = "0.5"
 clerk-rs = { version = "0.4", features = ["axum"] }
+async-graphql = { version = "7", features = ["chrono"] }
+async-graphql-axum = "7"
+async-stream = "0.3"
 
 [dev-dependencies]
 wiremock = "0.6"

@@ -1,0 +1,53 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type Query {
+  version: String!
+  health: String!
+}
+
+type Mutation {
+  ping: Boolean!
+}
+
+type Subscription {
+  ticks(symbols: [String!]!): TickEvent!
+}
+
+union TickEvent = SeedEvent | TodayEvent | DeltaEvent | FinalizeEvent
+
+type Bar {
+  ts: Int!
+  o: Int!
+  h: Int!
+  l: Int!
+  c: Int!
+  v: Int!
+}
+
+type SeedEvent {
+  symbol: String!
+  candle: Bar
+}
+
+type TodayEvent {
+  symbol: String!
+  bars: [Bar!]!
+}
+
+type DeltaEvent {
+  symbol: String!
+  ts: Int!
+  c: Int!
+  h: Int
+  l: Int
+  v: Int
+}
+
+type FinalizeEvent {
+  symbol: String!
+  candle: Bar!
+}

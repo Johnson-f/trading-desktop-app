@@ -33,7 +33,12 @@ impl TickServiceHandles {
 /// Initialize the tick-service from a `Config`, spawn its background tasks,
 /// and return the axum Router that should be merged into the host server's
 /// router (it adds `/ws`).
-pub async fn start(cfg: &Config) -> Result<(axum::Router, TickServiceHandles)> {
+pub async fn start(cfg: &Config) -> Result<(
+    axum::Router,
+    TickServiceHandles,
+    tokio::sync::mpsc::Sender<super::coordinator::CoordCmd>,
+    std::sync::Arc<super::redis_state::RedisState>,
+)> {
     let redis = Arc::new(
         RedisState::connect(
             &cfg.redis_url,
@@ -76,5 +81,7 @@ pub async fn start(cfg: &Config) -> Result<(axum::Router, TickServiceHandles)> {
             coordinator: coordinator_handle,
             boundary: boundary_handle,
         },
+        cmd_tx,
+        redis,
     ))
 }

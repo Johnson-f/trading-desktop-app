@@ -144,3 +144,84 @@ ssh myserver 'docker exec redis redis-cli ZRANGE tick:bars:'"$(date -u +%F)"':AA
 # Latest 10 stream entries
 ssh myserver 'docker exec redis redis-cli XREVRANGE tick:updates:AAPL + - COUNT 10'
 ```
+
+## GraphQL API
+
+The server exposes a unified GraphQL surface; all client traffic should
+go through it.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/graphql` | POST | Queries + mutations (HTTP, JSON body) |
+| `/graphql/ws` | GET (upgrade) | Subscriptions (WebSocket) |
+| `/graphiql` | GET | Interactive playground (dev) |
+| `/health` | GET | Public liveness probe (REST, no auth) |
+
+`POST /graphql` and `GET /graphql/ws` are protected by the Clerk JWT
+layer — every request must carry `Authorization: Bearer <token>`.
+
+### Example: query
+
+```bash
+curl -X POST http://localhost:8765/graphql \
+  -H "Authorization: Bearer $CLERK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ version health }"}'
+```
+
+### Example: subscription (via websocat)
+
+```bash
+websocat \
+  --header "Authorization: Bearer $CLERK_TOKEN" \
+  --protocol graphql-transport-ws \
+  ws://localhost:8765/graphql/ws
+> {"type":"connection_init"}
+> {"id":"1","type":"subscribe","payload":{"query":"subscription { ticks(symbols: [\"AAPL\"]) { __typename ... on DeltaEvent { symbol c v } } }"}}
+```
+
+The server replies with `connection_ack`, then a stream of `next` frames
+each carrying one `TickEvent`.
+
+### Schema overview
+
+```graphql
+type Query {
+  version: String!
+  health: String!
+}
+
+type Mutation {
+  ping: Boolean!
+}
+
+type Subscription {
+  ticks(symbols: [String!]!): TickEvent!
+}
+
+union TickEvent = SeedEvent | TodayEvent | DeltaEvent | FinalizeEvent
+
+type Bar { ts: Int!, o: Int!, h: Int!, l: Int!, c: Int!, v: Int! }
+type SeedEvent { symbol: String!, candle: Bar }
+type TodayEvent { symbol: String!, bars: [Bar!]! }
+type DeltaEvent { symbol: String!, ts: Int!, c: Int!, h: Int, l: Int, v: Int }
+type FinalizeEvent { symbol: String!, candle: Bar! }
+```
+
+`o`/`h`/`l`/`c` are integer cents; `Bar.ts` is bucket-start unix seconds;
+`DeltaEvent.ts` is the tick's unix milliseconds.
+
+## Legacy WebSocket (deprecated)
+
+`/ws` is still mounted while the desktop client migrates to GraphQL
+subscriptions. Once `apps/desktop` speaks `graphql-transport-ws` against
+`/graphql/ws`, remove:
+
+1. The `.merge(tick_router.layer(clerk_layer))` line in `main.rs`.
+2. The `apps/server/src/service/tick_service/ws_server.rs` module file.
+3. The `pub mod ws_server;` line in `apps/server/src/service/tick_service/mod.rs`.
+4. The `ServerState` construction inside `runtime::start` (no longer
+   needed once the WS server is gone).
+
+The `Coordinator`, `boundary`, `RedisState`, and `Subscriptions` modules
+stay — they're shared with the GraphQL subscription resolver.

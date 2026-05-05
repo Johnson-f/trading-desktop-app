@@ -1,0 +1,25 @@
+subscription TicksSubscription($symbols: [String!]!) {
+  ticks(symbols: $symbols) {
+    __typename
+    ... on SeedEvent {
+      symbol
+      candle { ts o h l c v }
+    }
+    ... on TodayEvent {
+      symbol
+      bars { ts o h l c v }
+    }
+    ... on DeltaEvent {
+      symbol
+      ts
+      c
+      h
+      l
+      v
+    }
+    ... on FinalizeEvent {
+      symbol
+      candle { ts o h l c v }
+    }
+  }
+}
