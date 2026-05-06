@@ -22,3 +22,14 @@ pub struct VersionQuery;
     response_derives = "Debug, Clone"
 )]
 pub struct TicksSubscription;
+
+/// `query searchSymbols(q, limit)` — fuzzy search the Typesense ticker
+/// index for symbols matching `q` (case-insensitive prefix + 1-typo
+/// tolerance over both ticker symbol and long company name).
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "schema.graphql",
+    query_path = "queries/search_symbols.graphql",
+    response_derives = "Debug, Clone"
+)]
+pub struct SearchSymbolsQuery;

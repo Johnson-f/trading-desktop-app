@@ -19,6 +19,14 @@ pub struct Config {
     /// How long after the user disconnects from a cold symbol to keep its
     /// Yahoo subscription alive (reserved for future use). Default 300s.
     pub cold_subscription_ttl_secs: u64,
+    /// Typesense base URL (e.g. `https://typesense.your-vps:8108`).
+    /// Read by the symbol-search GraphQL query. Writes are owned by
+    /// `apps/symbol-service`; this server is read-only.
+    pub typesense_url: String,
+    /// Typesense API key with search-only permissions.
+    pub typesense_api_key: String,
+    /// Typesense collection name. Defaults to `"tickers"`.
+    pub typesense_collection: String,
 }
 
 impl Config {
@@ -59,6 +67,13 @@ impl Config {
             .context("COLD_SUBSCRIPTION_TTL_SECS must be a positive integer")?
             .unwrap_or(300);
 
+        let typesense_url = std::env::var("TYPESENSE_URL")
+            .context("TYPESENSE_URL is required (e.g. https://typesense.your-vps:8108)")?;
+        let typesense_api_key = std::env::var("TYPESENSE_API_KEY")
+            .context("TYPESENSE_API_KEY is required")?;
+        let typesense_collection = std::env::var("TYPESENSE_COLLECTION")
+            .unwrap_or_else(|_| "tickers".to_string());
+
         Ok(Self {
             redis_url,
             max_warm_symbols,
@@ -66,6 +81,9 @@ impl Config {
             today_bars_ttl_secs,
             updates_stream_maxlen,
             cold_subscription_ttl_secs,
+            typesense_url,
+            typesense_api_key,
+            typesense_collection,
         })
     }
 }
@@ -105,6 +123,9 @@ mod tests {
             ("TODAY_BARS_TTL_SECS", None),
             ("UPDATES_STREAM_MAXLEN", None),
             ("COLD_SUBSCRIPTION_TTL_SECS", None),
+            ("TYPESENSE_URL", Some("http://localhost:8108")),
+            ("TYPESENSE_API_KEY", Some("test_key")),
+            ("TYPESENSE_COLLECTION", None),
         ]
     }
 
@@ -118,6 +139,9 @@ mod tests {
             assert_eq!(cfg.today_bars_ttl_secs, 36 * 3600);
             assert_eq!(cfg.updates_stream_maxlen, 200);
             assert_eq!(cfg.cold_subscription_ttl_secs, 300);
+            assert_eq!(cfg.typesense_url, "http://localhost:8108");
+            assert_eq!(cfg.typesense_api_key, "test_key");
+            assert_eq!(cfg.typesense_collection, "tickers");
         });
     }
 
@@ -148,6 +172,9 @@ mod tests {
             ("TODAY_BARS_TTL_SECS", Some("48000")),
             ("UPDATES_STREAM_MAXLEN", Some("400")),
             ("COLD_SUBSCRIPTION_TTL_SECS", Some("60")),
+            ("TYPESENSE_URL", Some("https://ts.example.com:8108")),
+            ("TYPESENSE_API_KEY", Some("prod_key")),
+            ("TYPESENSE_COLLECTION", Some("symbols")),
         ];
         with_env(&env, || {
             let cfg = Config::from_env().unwrap();
@@ -156,6 +183,41 @@ mod tests {
             assert_eq!(cfg.today_bars_ttl_secs, 48000);
             assert_eq!(cfg.updates_stream_maxlen, 400);
             assert_eq!(cfg.cold_subscription_ttl_secs, 60);
+            assert_eq!(cfg.typesense_url, "https://ts.example.com:8108");
+            assert_eq!(cfg.typesense_api_key, "prod_key");
+            assert_eq!(cfg.typesense_collection, "symbols");
+        });
+    }
+
+    #[test]
+    fn typesense_collection_defaults_to_tickers() {
+        let mut env = min_env();
+        // Ensure TYPESENSE_COLLECTION is absent.
+        let col_idx = env.iter().position(|(k, _)| *k == "TYPESENSE_COLLECTION").unwrap();
+        env[col_idx] = ("TYPESENSE_COLLECTION", None);
+        with_env(&env, || {
+            let cfg = Config::from_env().unwrap();
+            assert_eq!(cfg.typesense_collection, "tickers");
+        });
+    }
+
+    #[test]
+    fn rejects_missing_typesense_url() {
+        let mut env = min_env();
+        let idx = env.iter().position(|(k, _)| *k == "TYPESENSE_URL").unwrap();
+        env[idx] = ("TYPESENSE_URL", None);
+        with_env(&env, || {
+            assert!(Config::from_env().is_err());
+        });
+    }
+
+    #[test]
+    fn rejects_missing_typesense_api_key() {
+        let mut env = min_env();
+        let idx = env.iter().position(|(k, _)| *k == "TYPESENSE_API_KEY").unwrap();
+        env[idx] = ("TYPESENSE_API_KEY", None);
+        with_env(&env, || {
+            assert!(Config::from_env().is_err());
         });
     }
 }

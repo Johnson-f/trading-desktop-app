@@ -11,7 +11,7 @@ pub mod subscriptions;
 use graphql_client::{GraphQLQuery, Response as GqlResponse};
 use thiserror::Error;
 
-use crate::queries::{VersionQuery, version_query};
+use crate::queries::{SearchSymbolsQuery, VersionQuery, search_symbols_query, version_query};
 
 #[derive(Debug, Error)]
 pub enum ApiError {
@@ -70,6 +70,30 @@ impl ApiClient {
 
     pub fn bearer(&self) -> Option<&str> {
         self.bearer.as_deref()
+    }
+
+    /// Fuzzy-search the symbol index. `limit` defaults to 20 server-side,
+    /// clamped to [1, 50].
+    pub async fn search_symbols(
+        &self,
+        q: impl Into<String>,
+        limit: Option<i32>,
+    ) -> Result<Vec<search_symbols_query::SearchSymbolsQuerySearchSymbols>, ApiError> {
+        let body = SearchSymbolsQuery::build_query(search_symbols_query::Variables {
+            q: q.into(),
+            limit: limit.map(|n| n as i64),
+        });
+        let mut req = self.http.post(self.graphql_url()).json(&body);
+        if let Some(token) = &self.bearer {
+            req = req.bearer_auth(token);
+        }
+        let resp: GqlResponse<search_symbols_query::ResponseData> =
+            req.send().await?.error_for_status()?.json().await?;
+        if let Some(errs) = resp.errors {
+            return Err(ApiError::Graphql(errs));
+        }
+        let data = resp.data.ok_or(ApiError::NoData)?;
+        Ok(data.search_symbols)
     }
 
     /// Sanity check: returns `(version, health)`.

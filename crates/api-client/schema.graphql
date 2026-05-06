@@ -7,6 +7,7 @@ schema {
 type Query {
   version: String!
   health: String!
+  searchSymbols(q: String!, limit: Int): [Symbol!]!
 }
 
 type Mutation {
@@ -50,4 +51,12 @@ type DeltaEvent {
 type FinalizeEvent {
   symbol: String!
   candle: Bar!
+}
+
+type Symbol {
+  id: String!
+  symbol: String!
+  longName: String
+  exchange: String!
+  quoteType: String!
 }

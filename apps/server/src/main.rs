@@ -50,6 +50,8 @@ async fn main() -> Result<()> {
         redis = %redact_redis_url(&cfg.redis_url),
         max_warm_symbols = cfg.max_warm_symbols,
         ws_bind = %cfg.ws_bind,
+        typesense_url = %cfg.typesense_url,
+        typesense_collection = %cfg.typesense_collection,
         "zaned-server starting"
     );
 
@@ -61,9 +63,20 @@ async fn main() -> Result<()> {
     let clerk_layer = auth::runtime::from_env()?;
     tracing::info!("clerk auth layer initialized");
 
+    // Build read-only Typesense client for symbol search (writes are owned
+    // by apps/symbol-service on the VPS).
+    let typesense = std::sync::Arc::new(
+        crate::service::typesense::TypesenseClient::new(
+            &cfg.typesense_url,
+            &cfg.typesense_api_key,
+            &cfg.typesense_collection,
+        )?,
+    );
+    tracing::info!("typesense client initialized");
+
     // Build the GraphQL schema. Reuse the Redis Arc returned by runtime::start
     // instead of opening a second connection.
-    let schema = graphql::build_schema(redis, cfg.redis_url.clone(), cmd_tx);
+    let schema = graphql::build_schema(redis, cfg.redis_url.clone(), cmd_tx, typesense);
     let graphql_router = graphql::router(schema);
 
     let app = Router::new()

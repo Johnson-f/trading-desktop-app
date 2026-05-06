@@ -1,0 +1,9 @@
+query SearchSymbolsQuery($q: String!, $limit: Int) {
+  searchSymbols(q: $q, limit: $limit) {
+    id
+    symbol
+    longName
+    exchange
+    quoteType
+  }
+}
