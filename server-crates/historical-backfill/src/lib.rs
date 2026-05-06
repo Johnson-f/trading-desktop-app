@@ -1,4 +1,5 @@
-//! historical-service: nightly Yahoo-backed OHLCV backfill.
+//! historical-backfill: Yahoo-backed OHLCV backfill, embedded as a
+//! library inside the gateway's tokio runtime.
 //!
 //! On each cycle (default 02:00 UTC):
 //!   1. Fetch the universe from Yahoo's screener (~3,500 symbols).
@@ -9,6 +10,14 @@
 //! On startup, runs an immediate cycle once before entering the
 //! schedule loop — so a fresh deploy populates ClickHouse without
 //! waiting until the next 02:00 UTC.
+//!
+//! # Embedding
+//!
+//! The gateway calls [`run`] inside a `tokio::spawn` at boot. The task
+//! runs forever; cancellation happens implicitly when the runtime
+//! drops on shutdown. A panic inside this task does not bring down the
+//! gateway — `JoinHandle` surfaces it, and the caller decides whether
+//! to log-and-forget or restart.
 
 mod bar;
 mod clickhouse;
@@ -19,38 +28,29 @@ mod scheduler;
 mod universe;
 mod yahoo;
 
+pub use config::Config;
+
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::signal::unix::{SignalKind, signal};
 
 use crate::clickhouse::ClickhouseClient;
-use crate::config::Config;
 use crate::scheduler::wait_until_next_run;
 use crate::universe::fetch_universe;
 use crate::yahoo::YahooSource;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let crate_env = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
-    if dotenvy::from_path(&crate_env).is_err() {
-        let _ = dotenvy::dotenv();
-    }
-
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "historical_service=info,markets=warn".into()),
-        )
-        .init();
-
-    let cfg = Config::from_env()?;
+/// Run the backfill scheduler forever. Caller is expected to
+/// `tokio::spawn` this; cancellation occurs when the runtime shuts
+/// down. Returns `Err` only if initial setup (ClickHouse client build,
+/// table creation) fails — once the loop starts, transient cycle
+/// errors are logged and the next cycle proceeds.
+pub async fn run(cfg: Config) -> Result<()> {
     tracing::info!(
         clickhouse = %cfg.clickhouse_url,
         database = %cfg.clickhouse_database,
         schedule_hour_utc = cfg.schedule_hour_utc,
         yahoo_workers = cfg.yahoo_workers,
-        "historical-service starting (yahoo-only)"
+        "historical-backfill starting"
     );
 
     let ch = Arc::new(ClickhouseClient::new(
@@ -63,28 +63,13 @@ async fn main() -> Result<()> {
 
     let yahoo = Arc::new(YahooSource::new());
 
-    let sync_loop = async {
-        loop {
-            run_cycle(ch.clone(), yahoo.clone(), cfg.yahoo_workers).await;
-            wait_until_next_run(cfg.schedule_hour_utc).await;
-        }
-    };
-
-    let mut sigterm = signal(SignalKind::terminate())
-        .map_err(|e| anyhow::anyhow!("install SIGTERM: {e}"))?;
-    tokio::select! {
-        _ = sync_loop => {}
-        _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received; exiting"),
-        _ = sigterm.recv() => tracing::info!("SIGTERM received; exiting"),
+    loop {
+        run_cycle(ch.clone(), yahoo.clone(), cfg.yahoo_workers).await;
+        wait_until_next_run(cfg.schedule_hour_utc).await;
     }
-    Ok(())
 }
 
-async fn run_cycle(
-    ch: Arc<ClickhouseClient>,
-    yahoo: Arc<YahooSource>,
-    workers: usize,
-) {
+async fn run_cycle(ch: Arc<ClickhouseClient>, yahoo: Arc<YahooSource>, workers: usize) {
     let universe = match fetch_universe().await {
         Ok(u) => u,
         Err(e) => {

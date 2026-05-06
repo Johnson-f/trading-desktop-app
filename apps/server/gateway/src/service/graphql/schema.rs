@@ -1,7 +1,7 @@
 //! Build the GraphQL `Schema` once at boot, attaching shared state
-//! (Redis handle, command channel, redis URL, Typesense client) as data
-//! extensions. The `Schema` is `Clone`able and shared across all axum
-//! requests.
+//! (Redis handle, command channel, redis URL, Typesense client,
+//! ClickHouse reader) as data extensions. The `Schema` is `Clone`able
+//! and shared across all axum requests.
 
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ use super::mutation::MutationRoot;
 use super::query::QueryRoot;
 use super::subscription::SubscriptionRoot;
 use super::tick_service::SubscriptionContext;
+use crate::service::historical_service::ClickhouseReader;
 use crate::service::tick_service::coordinator::CoordCmd;
 use crate::service::tick_service::redis_state::RedisState;
 use crate::service::typesense::TypesenseClient;
@@ -23,10 +24,12 @@ pub fn build_schema(
     redis_url: String,
     cmd_tx: mpsc::Sender<CoordCmd>,
     typesense: Arc<TypesenseClient>,
+    clickhouse: Arc<ClickhouseReader>,
 ) -> AppSchema {
     let sub_ctx = SubscriptionContext { redis, redis_url, cmd_tx };
     Schema::build(QueryRoot::default(), MutationRoot, SubscriptionRoot::default())
         .data(sub_ctx)
         .data(typesense)
+        .data(clickhouse)
         .finish()
 }

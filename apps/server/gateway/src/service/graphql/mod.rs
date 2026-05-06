@@ -11,6 +11,7 @@ pub mod mutation;
 pub mod query;
 pub mod schema;
 pub mod subscription;
+pub mod historical;
 pub mod symbol;
 pub mod tick_service;
 

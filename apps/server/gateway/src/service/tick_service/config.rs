@@ -27,6 +27,16 @@ pub struct Config {
     pub typesense_api_key: String,
     /// Typesense collection name. Defaults to `"tickers"`.
     pub typesense_collection: String,
+    /// ClickHouse base URL (e.g. `http://localhost:8123`).
+    /// Read by the historical-bars GraphQL query. Writes are owned by
+    /// `apps/historical-service`; this server is read-only.
+    pub clickhouse_url: String,
+    /// ClickHouse username. Defaults to `"default"`.
+    pub clickhouse_user: String,
+    /// ClickHouse password.
+    pub clickhouse_password: String,
+    /// ClickHouse database. Defaults to `"market_data"`.
+    pub clickhouse_database: String,
 }
 
 impl Config {
@@ -74,6 +84,15 @@ impl Config {
         let typesense_collection = std::env::var("TYPESENSE_COLLECTION")
             .unwrap_or_else(|_| "tickers".to_string());
 
+        let clickhouse_url = std::env::var("CLICKHOUSE_URL")
+            .context("CLICKHOUSE_URL is required (e.g. http://localhost:8123)")?;
+        let clickhouse_user =
+            std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".to_string());
+        let clickhouse_password =
+            std::env::var("CLICKHOUSE_PASSWORD").context("CLICKHOUSE_PASSWORD is required")?;
+        let clickhouse_database =
+            std::env::var("CLICKHOUSE_DATABASE").unwrap_or_else(|_| "market_data".to_string());
+
         Ok(Self {
             redis_url,
             max_warm_symbols,
@@ -84,6 +103,10 @@ impl Config {
             typesense_url,
             typesense_api_key,
             typesense_collection,
+            clickhouse_url,
+            clickhouse_user,
+            clickhouse_password,
+            clickhouse_database,
         })
     }
 }
@@ -126,6 +149,10 @@ mod tests {
             ("TYPESENSE_URL", Some("http://localhost:8108")),
             ("TYPESENSE_API_KEY", Some("test_key")),
             ("TYPESENSE_COLLECTION", None),
+            ("CLICKHOUSE_URL", Some("http://localhost:8123")),
+            ("CLICKHOUSE_USER", None),
+            ("CLICKHOUSE_PASSWORD", Some("changeme")),
+            ("CLICKHOUSE_DATABASE", None),
         ]
     }
 
@@ -142,6 +169,10 @@ mod tests {
             assert_eq!(cfg.typesense_url, "http://localhost:8108");
             assert_eq!(cfg.typesense_api_key, "test_key");
             assert_eq!(cfg.typesense_collection, "tickers");
+            assert_eq!(cfg.clickhouse_url, "http://localhost:8123");
+            assert_eq!(cfg.clickhouse_user, "default");
+            assert_eq!(cfg.clickhouse_password, "changeme");
+            assert_eq!(cfg.clickhouse_database, "market_data");
         });
     }
 
@@ -175,6 +206,10 @@ mod tests {
             ("TYPESENSE_URL", Some("https://ts.example.com:8108")),
             ("TYPESENSE_API_KEY", Some("prod_key")),
             ("TYPESENSE_COLLECTION", Some("symbols")),
+            ("CLICKHOUSE_URL", Some("http://localhost:8123")),
+            ("CLICKHOUSE_USER", None),
+            ("CLICKHOUSE_PASSWORD", Some("changeme")),
+            ("CLICKHOUSE_DATABASE", None),
         ];
         with_env(&env, || {
             let cfg = Config::from_env().unwrap();
@@ -216,6 +251,60 @@ mod tests {
         let mut env = min_env();
         let idx = env.iter().position(|(k, _)| *k == "TYPESENSE_API_KEY").unwrap();
         env[idx] = ("TYPESENSE_API_KEY", None);
+        with_env(&env, || {
+            assert!(Config::from_env().is_err());
+        });
+    }
+
+    #[test]
+    fn loads_clickhouse_env() {
+        let env = vec![
+            ("REDIS_URL", Some("redis://localhost")),
+            ("MAX_WARM_SYMBOLS", None),
+            ("TICK_SERVICE_WS_BIND", None),
+            ("TODAY_BARS_TTL_SECS", None),
+            ("UPDATES_STREAM_MAXLEN", None),
+            ("COLD_SUBSCRIPTION_TTL_SECS", None),
+            ("TYPESENSE_URL", Some("http://localhost:8108")),
+            ("TYPESENSE_API_KEY", Some("k")),
+            ("TYPESENSE_COLLECTION", None),
+            ("CLICKHOUSE_URL", Some("http://localhost:8123")),
+            ("CLICKHOUSE_USER", None),
+            ("CLICKHOUSE_PASSWORD", Some("pw")),
+            ("CLICKHOUSE_DATABASE", None),
+        ];
+        with_env(&env, || {
+            let cfg = Config::from_env().unwrap();
+            assert_eq!(cfg.clickhouse_url, "http://localhost:8123");
+            assert_eq!(cfg.clickhouse_user, "default");
+            assert_eq!(cfg.clickhouse_password, "pw");
+            assert_eq!(cfg.clickhouse_database, "market_data");
+        });
+    }
+
+    #[test]
+    fn rejects_missing_clickhouse_url() {
+        let env = vec![
+            ("REDIS_URL", Some("redis://localhost")),
+            ("TYPESENSE_URL", Some("http://localhost:8108")),
+            ("TYPESENSE_API_KEY", Some("k")),
+            ("CLICKHOUSE_URL", None),
+            ("CLICKHOUSE_PASSWORD", Some("pw")),
+        ];
+        with_env(&env, || {
+            assert!(Config::from_env().is_err());
+        });
+    }
+
+    #[test]
+    fn rejects_missing_clickhouse_password() {
+        let env = vec![
+            ("REDIS_URL", Some("redis://localhost")),
+            ("TYPESENSE_URL", Some("http://localhost:8108")),
+            ("TYPESENSE_API_KEY", Some("k")),
+            ("CLICKHOUSE_URL", Some("http://localhost:8123")),
+            ("CLICKHOUSE_PASSWORD", None),
+        ];
         with_env(&env, || {
             assert!(Config::from_env().is_err());
         });

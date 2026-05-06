@@ -1,13 +1,15 @@
 //! Top-level GraphQL query root. Composes per-subsystem query structs
-//! (currently `GenericQuery` for liveness/version + `SymbolQuery` for
-//! symbol search) via `async-graphql`'s `MergedObject` derive.
+//! (currently `GenericQuery` for liveness/version, `SymbolQuery` for
+//! symbol search, and `HistoricalQuery` for OHLCV bars) via
+//! `async-graphql`'s `MergedObject` derive.
 
 use async_graphql::{MergedObject, Object};
 
+use super::historical::HistoricalQuery;
 use super::symbol::SymbolQuery;
 
 #[derive(MergedObject, Default)]
-pub struct QueryRoot(GenericQuery, SymbolQuery);
+pub struct QueryRoot(GenericQuery, SymbolQuery, HistoricalQuery);
 
 #[derive(Default)]
 struct GenericQuery;

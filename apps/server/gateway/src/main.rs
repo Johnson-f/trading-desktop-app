@@ -52,6 +52,8 @@ async fn main() -> Result<()> {
         ws_bind = %cfg.ws_bind,
         typesense_url = %cfg.typesense_url,
         typesense_collection = %cfg.typesense_collection,
+        clickhouse_url = %cfg.clickhouse_url,
+        clickhouse_database = %cfg.clickhouse_database,
         "zaned-server starting"
     );
 
@@ -74,9 +76,43 @@ async fn main() -> Result<()> {
     );
     tracing::info!("typesense client initialized");
 
+    // Build read-only ClickHouse client for historical bars (writes are
+    // owned by apps/historical-service on the VPS).
+    let clickhouse = std::sync::Arc::new(
+        crate::service::historical_service::ClickhouseReader::new(
+            &cfg.clickhouse_url,
+            &cfg.clickhouse_user,
+            &cfg.clickhouse_password,
+            &cfg.clickhouse_database,
+        )?,
+    );
+    tracing::info!("clickhouse reader initialized");
+
+    // Spawn the historical-backfill scheduler as an embedded subsystem.
+    // Runs forever in the background; a panic surfaces via the JoinHandle
+    // and is logged but does not bring the gateway down.
+    let backfill_cfg = historical_backfill::Config::from_env()?;
+    let backfill_handle = tokio::spawn(async move {
+        if let Err(e) = historical_backfill::run(backfill_cfg).await {
+            tracing::error!(error = ?e, "historical-backfill exited with error");
+        }
+    });
+    tracing::info!("historical-backfill scheduler spawned");
+
+    // Spawn the symbol-indexer scheduler as an embedded subsystem.
+    // Same isolation policy as historical-backfill: a panic surfaces
+    // via the JoinHandle and is logged but does not kill the gateway.
+    let indexer_cfg = symbol_indexer::Config::from_env()?;
+    let indexer_handle = tokio::spawn(async move {
+        if let Err(e) = symbol_indexer::run(indexer_cfg).await {
+            tracing::error!(error = ?e, "symbol-indexer exited with error");
+        }
+    });
+    tracing::info!("symbol-indexer scheduler spawned");
+
     // Build the GraphQL schema. Reuse the Redis Arc returned by runtime::start
     // instead of opening a second connection.
-    let schema = graphql::build_schema(redis, cfg.redis_url.clone(), cmd_tx, typesense);
+    let schema = graphql::build_schema(redis, cfg.redis_url.clone(), cmd_tx, typesense, clickhouse);
     let graphql_router = graphql::router(schema);
 
     let app = Router::new()
@@ -104,6 +140,8 @@ async fn main() -> Result<()> {
 
     handles.abort_all();
     serve_handle.abort();
+    backfill_handle.abort();
+    indexer_handle.abort();
     Ok(())
 }
 

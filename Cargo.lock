@@ -2773,7 +2773,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "historical-service"
+name = "historical-backfill"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2781,7 +2781,6 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clickhouse",
- "dotenvy",
  "futures",
  "markets",
  "reqwest 0.13.2",
@@ -2790,7 +2789,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wiremock",
 ]
 
@@ -6573,13 +6571,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
-name = "symbol-service"
+name = "symbol-indexer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "dotenvy",
  "markets",
  "redis",
  "reqwest 0.13.2",
@@ -6588,7 +6585,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "wiremock",
 ]
 
@@ -8634,8 +8630,10 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clerk-rs",
+ "clickhouse",
  "dotenvy",
  "futures",
+ "historical-backfill",
  "linked-hash-map",
  "markets",
  "questdb-rs",
@@ -8643,6 +8641,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "symbol-indexer",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-markets = { path = "../../crates/markets" }
+markets = { path = "../../../server-crates/markets" }
+historical-backfill = { path = "../../../server-crates/historical-backfill" }
+symbol-indexer = { path = "../../../server-crates/symbol-indexer" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1.50", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -16,6 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 anyhow = "1"
 reqwest = { version = "0.12", features = ["json"] }
+clickhouse = { version = "0.15", features = ["chrono", "rustls-tls"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
