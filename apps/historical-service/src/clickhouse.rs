@@ -34,6 +34,29 @@ SETTINGS
     enable_block_offset_column                  = 0
 "#;
 
+const CREATE_TABLE_1D_DDL: &str = r#"
+CREATE TABLE IF NOT EXISTS bars_1d
+(
+    symbol      LowCardinality(String),
+    ts          DateTime                              CODEC(DoubleDelta, ZSTD(3)),
+    open        Decimal32(2)                          CODEC(Delta(4), ZSTD(3)),
+    high        Decimal32(2)                          CODEC(Delta(4), ZSTD(3)),
+    low         Decimal32(2)                          CODEC(Delta(4), ZSTD(3)),
+    close       Decimal32(2)                          CODEC(Delta(4), ZSTD(3)),
+    volume      UInt32                                CODEC(T64, ZSTD(3)),
+    version     UInt32 DEFAULT toUnixTimestamp(now()) CODEC(DoubleDelta, ZSTD(3))
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY toYear(ts)
+ORDER BY (symbol, ts)
+SETTINGS
+    index_granularity                           = 16384,
+    min_bytes_for_wide_part                     = 0,
+    parts_to_throw_insert                       = 600,
+    enable_block_number_column                  = 0,
+    enable_block_offset_column                  = 0
+"#;
+
 const CREATE_SYMBOL_METADATA_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS symbol_metadata
 (
@@ -62,8 +85,8 @@ impl ClickhouseClient {
         database: &str,
     ) -> Result<Self> {
         // No async_insert: we batch client-side via the native RowBinary inserter
-        // with 100k-row coalescing in sync.rs, which is the recommended path when
-        // batches are large enough on their own.
+        // (the daily/minute sync passes call insert_bars per symbol). Recommended
+        // when batches are large enough on their own.
         let client = ::clickhouse::Client::default()
             .with_url(url)
             .with_user(user)
@@ -102,6 +125,12 @@ impl ClickhouseClient {
             .execute()
             .await
             .context("CREATE TABLE bars_1m")?;
+
+        self.client
+            .query(CREATE_TABLE_1D_DDL)
+            .execute()
+            .await
+            .context("CREATE TABLE bars_1d")?;
 
         self.client
             .query(CREATE_SYMBOL_METADATA_DDL)
@@ -168,6 +197,7 @@ impl ClickhouseClient {
 
     pub async fn high_water_marks(
         &self,
+        table: &str,
         symbols: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>> {
         if symbols.is_empty() {
@@ -181,7 +211,7 @@ impl ClickhouseClient {
             .join(",");
 
         let sql = format!(
-            "SELECT symbol, max(ts) AS hwm FROM bars_1m WHERE symbol IN ({in_list}) GROUP BY symbol"
+            "SELECT symbol, max(ts) AS hwm FROM {table} WHERE symbol IN ({in_list}) GROUP BY symbol"
         );
 
         #[derive(::clickhouse::Row, serde::Deserialize)]
@@ -201,13 +231,13 @@ impl ClickhouseClient {
         Ok(rows.into_iter().map(|r| (r.symbol, r.hwm)).collect())
     }
 
-    pub async fn insert_bars(&self, bars: &[Bar]) -> Result<usize> {
+    pub async fn insert_bars(&self, table: &str, bars: &[Bar]) -> Result<usize> {
         if bars.is_empty() {
             return Ok(0);
         }
         let mut insert = self
             .client
-            .insert::<Bar>("bars_1m")
+            .insert::<Bar>(table)
             .await
             .context("create insert handle")?;
         for bar in bars {
@@ -215,18 +245,5 @@ impl ClickhouseClient {
         }
         insert.end().await.context("flush insert")?;
         Ok(bars.len())
-    }
-}
-
-#[::async_trait::async_trait]
-impl crate::sync::BarSink for ClickhouseClient {
-    async fn high_water_marks(
-        &self,
-        symbols: &[String],
-    ) -> anyhow::Result<std::collections::HashMap<String, ::chrono::DateTime<::chrono::Utc>>> {
-        ClickhouseClient::high_water_marks(self, symbols).await
-    }
-    async fn insert_bars(&self, bars: &[crate::bar::Bar]) -> anyhow::Result<usize> {
-        ClickhouseClient::insert_bars(self, bars).await
     }
 }

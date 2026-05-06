@@ -1,9 +1,12 @@
-use anyhow::{Context, Result};
+use anyhow::{Result, anyhow};
 
 const PAGE_SIZE: u32 = 250;
 const EXCHANGES: &[&str] = &["NMS", "NYQ", "ASE"];
 const MIN_AVG_DAILY_VOL_3M: f64 = 50_000.0;
 const MIN_MARKET_CAP: f64 = 1_000_000.0;
+/// Yahoo's screener throttles aggressive pagination. A small pause per page
+/// keeps us under whatever the silent rate cap is.
+const INTER_PAGE_DELAY_MS: u64 = 250;
 
 /// Fetch the active US equity universe ordered by intraday market cap
 /// descending, so the backfill processes the most-traded names first.
@@ -11,6 +14,12 @@ const MIN_MARKET_CAP: f64 = 1_000_000.0;
 /// We use Yahoo's screener directly (not Typesense) so this service stays
 /// independent of `symbol-service`'s collection schema. Each exchange is
 /// queried separately, results are merged and re-sorted client-side.
+///
+/// **Per-page tolerance:** an individual page failure (Yahoo 429/5xx, network
+/// blip) is retried once after a 2s backoff. If it still fails we log a
+/// warning and break out of that exchange's pagination, keeping whatever
+/// pages we already collected. Only a total failure (no symbols at all
+/// across all three exchanges) propagates as an error.
 pub async fn fetch_universe() -> Result<Vec<String>> {
     use markets::{EquityField, EquityScreenerQuery, ScreenerFieldExt};
 
@@ -19,18 +28,42 @@ pub async fn fetch_universe() -> Result<Vec<String>> {
     for exchange in EXCHANGES {
         let mut offset: u32 = 0;
         loop {
-            let query = EquityScreenerQuery::new()
-                .size(PAGE_SIZE)
-                .offset(offset)
-                .sort_by(EquityField::IntradayMarketCap, false)
-                .add_condition(EquityField::Region.eq_str("us"))
-                .add_condition(EquityField::Exchange.eq_str(*exchange))
-                .add_condition(EquityField::AvgDailyVol3M.gt(MIN_AVG_DAILY_VOL_3M))
-                .add_condition(EquityField::IntradayMarketCap.gt(MIN_MARKET_CAP));
-
-            let results = markets::finance::custom_screener(query)
-                .await
-                .with_context(|| format!("yahoo screener {exchange}@{offset}"))?;
+            let mut last_err: Option<anyhow::Error> = None;
+            let mut results: Option<_> = None;
+            for attempt in 1..=2 {
+                let query = EquityScreenerQuery::new()
+                    .size(PAGE_SIZE)
+                    .offset(offset)
+                    .sort_by(EquityField::IntradayMarketCap, false)
+                    .add_condition(EquityField::Region.eq_str("us"))
+                    .add_condition(EquityField::Exchange.eq_str(*exchange))
+                    .add_condition(EquityField::AvgDailyVol3M.gt(MIN_AVG_DAILY_VOL_3M))
+                    .add_condition(EquityField::IntradayMarketCap.gt(MIN_MARKET_CAP));
+                match markets::finance::custom_screener(query).await {
+                    Ok(r) => {
+                        results = Some(r);
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(anyhow!("yahoo screener {exchange}@{offset}: {e}"));
+                        if attempt < 2 {
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                    }
+                }
+            }
+            let results = match results {
+                Some(r) => r,
+                None => {
+                    tracing::warn!(
+                        exchange,
+                        offset,
+                        error = ?last_err,
+                        "screener page failed twice; skipping rest of this exchange"
+                    );
+                    break;
+                }
+            };
 
             if results.quotes.is_empty() {
                 break;
@@ -55,7 +88,12 @@ pub async fn fetch_universe() -> Result<Vec<String>> {
                 break;
             }
             offset += PAGE_SIZE;
+            tokio::time::sleep(std::time::Duration::from_millis(INTER_PAGE_DELAY_MS)).await;
         }
+    }
+
+    if all.is_empty() {
+        anyhow::bail!("yahoo screener returned zero symbols across all exchanges");
     }
 
     all.sort_by(|a, b| b.1.cmp(&a.1));

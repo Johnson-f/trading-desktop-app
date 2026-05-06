@@ -47,8 +47,7 @@ impl Bar {
 
     /// Construct a Bar with `version` set to the current Unix timestamp.
     /// Prices are passed in cents already. Use this in tests and any inline
-    /// construction; the parsing helpers in `fmp.rs` and `yahoo.rs` do this
-    /// themselves.
+    /// construction; the parsing helpers in `yahoo.rs` do this themselves.
     pub fn now_versioned(
         symbol: impl Into<String>,
         ts: DateTime<Utc>,
