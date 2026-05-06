@@ -122,10 +122,18 @@ pub async fn sign_in(cfg: &ClerkConfig) -> Result<TokenSet> {
 
     // 6. Persist refresh token (best effort — sign-in still succeeds even
     // if the keychain is locked; user just has to re-auth on next launch).
-    if let Some(rt) = &token_set.refresh_token {
-        if let Err(e) = storage::store_refresh_token(rt) {
-            tracing::warn!(error = %e, "failed to persist refresh token");
+    // If Clerk didn't issue one, surface a loud warning — silent absence
+    // here means every cold start will require a fresh sign-in.
+    match &token_set.refresh_token {
+        Some(rt) => {
+            if let Err(e) = storage::store_refresh_token(rt) {
+                tracing::warn!(error = %e, "failed to persist refresh token");
+            }
         }
+        None => tracing::warn!(
+            "Clerk did not return a refresh token; user will need to re-sign-in on next launch \
+             (check that `offline_access` is in the OAuth Application's allowed scopes)"
+        ),
     }
 
     Ok(token_set)

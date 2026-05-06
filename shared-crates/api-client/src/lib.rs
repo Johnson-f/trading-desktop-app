@@ -1,17 +1,27 @@
-//! Typed GraphQL client for `zaned-server`. Exposes:
-//!   - `ApiClient::version()` — sanity check (server build + health)
-//!   - `ApiClient::subscribe_ticks(symbols)` — live OHLCV stream
+//! Typed GraphQL client for `zaned-server`.
 //!
-//! All methods carry the bearer token set via `with_bearer`. Without one,
-//! Clerk-protected routes return 401.
+//! Layout:
+//!   - [`transport`] — generic HTTP / WebSocket helpers (the only
+//!     place that touches `reqwest`, bearer headers, and
+//!     `graphql_ws_client` directly).
+//!   - [`operations`] — one file per query/mutation domain. Each file
+//!     owns the `#[derive(GraphQLQuery)]` struct AND the public
+//!     wrapper method on [`ApiClient`].
+//!   - [`subscriptions`] — one file per subscription, same pattern.
+//!
+//! Adding a new query is three steps: drop the `.graphql` file in
+//! `queries/`, add a `GraphQLQuery` derive in
+//! `operations/<domain>.rs`, write a thin wrapper that delegates to
+//! [`transport::execute_query`].
 
-pub mod queries;
+pub mod operations;
 pub mod subscriptions;
+pub mod transport;
 
-use graphql_client::{GraphQLQuery, Response as GqlResponse};
 use thiserror::Error;
 
-use crate::queries::{SearchSymbolsQuery, VersionQuery, search_symbols_query, version_query};
+pub use operations::symbols::Symbol;
+pub use subscriptions::ticks::{TickEvent, TicksResponse};
 
 #[derive(Debug, Error)]
 pub enum ApiError {
@@ -38,8 +48,8 @@ pub struct ApiClient {
 
 impl ApiClient {
     /// `base_url` is the HTTP root, e.g. `http://localhost:8765`. The
-    /// WebSocket endpoint is derived from this (replace `http` → `ws` and
-    /// append `/graphql/ws`).
+    /// WebSocket endpoint is derived from this (replace `http` → `ws`
+    /// and append `/graphql/ws`).
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
@@ -58,8 +68,8 @@ impl ApiClient {
         format!("{}/graphql", self.base_url)
     }
 
-    /// Subscriptions endpoint. Replaces the `http`/`https` scheme with
-    /// `ws`/`wss`.
+    /// Subscriptions endpoint. Replaces the `http` / `https` scheme
+    /// with `ws` / `wss`.
     pub fn graphql_ws_url(&self) -> String {
         let s = self
             .base_url
@@ -72,43 +82,8 @@ impl ApiClient {
         self.bearer.as_deref()
     }
 
-    /// Fuzzy-search the symbol index. `limit` defaults to 20 server-side,
-    /// clamped to [1, 50].
-    pub async fn search_symbols(
-        &self,
-        q: impl Into<String>,
-        limit: Option<i32>,
-    ) -> Result<Vec<search_symbols_query::SearchSymbolsQuerySearchSymbols>, ApiError> {
-        let body = SearchSymbolsQuery::build_query(search_symbols_query::Variables {
-            q: q.into(),
-            limit: limit.map(|n| n as i64),
-        });
-        let mut req = self.http.post(self.graphql_url()).json(&body);
-        if let Some(token) = &self.bearer {
-            req = req.bearer_auth(token);
-        }
-        let resp: GqlResponse<search_symbols_query::ResponseData> =
-            req.send().await?.error_for_status()?.json().await?;
-        if let Some(errs) = resp.errors {
-            return Err(ApiError::Graphql(errs));
-        }
-        let data = resp.data.ok_or(ApiError::NoData)?;
-        Ok(data.search_symbols)
-    }
-
-    /// Sanity check: returns `(version, health)`.
-    pub async fn version(&self) -> Result<(String, String), ApiError> {
-        let body = VersionQuery::build_query(version_query::Variables {});
-        let mut req = self.http.post(self.graphql_url()).json(&body);
-        if let Some(token) = &self.bearer {
-            req = req.bearer_auth(token);
-        }
-        let resp: GqlResponse<version_query::ResponseData> =
-            req.send().await?.error_for_status()?.json().await?;
-        if let Some(errs) = resp.errors {
-            return Err(ApiError::Graphql(errs));
-        }
-        let data = resp.data.ok_or(ApiError::NoData)?;
-        Ok((data.version, data.health))
+    /// Shared `reqwest::Client` — used by [`transport::execute_query`].
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
     }
 }
