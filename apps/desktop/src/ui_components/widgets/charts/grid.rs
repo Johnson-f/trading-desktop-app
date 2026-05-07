@@ -6,16 +6,54 @@ use super::candle::CandleData;
 const LABEL_COLOR: Color32 = Color32::from_rgb(120, 120, 130);
 const CURRENT_PRICE_BG: Color32 = Color32::from_rgb(78, 205, 196);
 const CURRENT_PRICE_TEXT: Color32 = Color32::from_rgb(0, 0, 0);
-const AXIS_WIDTH: f32 = 65.0;
+pub const AXIS_WIDTH: f32 = 58.0;
+/// Padding between the rightmost price digit and the window edge (Webull-style).
+const PRICE_LABEL_RIGHT_PAD: f32 = 10.0;
+/// Horizontal padding inside the last-price badge (per side).
+const BADGE_PAD_X: f32 = 8.0;
 
-/// Paint price labels on the right edge (no grid lines)
-pub fn paint_price_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData) {
+/// Paint price labels on the right edge (no grid lines).
+/// The actual gutter chrome (mask + divider + labels + badge) has been moved
+/// to `paint_price_axis`, which must be called AFTER all other chart-area
+/// paint passes so the gutter always renders on top.
+pub fn paint_price_grid(_ui: &egui::Ui, _chart_rect: Rect, _camera: &Camera, _data: &CandleData) {
+    // No-op: horizontal grid lines are not drawn in this chart style.
+    // The gutter chrome is painted by `paint_price_axis` at the end of show().
+}
+
+/// Paint the full price-scale gutter chrome: opaque BG mask, vertical hairline
+/// divider, tick price labels, and the last-price highlighted badge.
+///
+/// **Must be called LAST** in the `show()` paint sequence — after drawings,
+/// crosshair, and ghost — so the gutter always renders on top of anything that
+/// bleeds into the right-side gutter region.
+pub fn paint_price_axis(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData) {
     if data.len() == 0 {
         return;
     }
 
     let painter = ui.painter_at(chart_rect);
     let font = FontId::monospace(10.0);
+
+    // Vertical hairline divider at the left edge of the price-scale gutter.
+    let gutter_x = chart_rect.right() - AXIS_WIDTH;
+
+    // 1. Opaque fill over the gutter to mask any pixels that bleed in
+    //    (WGPU candles, drawings, crosshair lines, ghost cursors, …).
+    let gutter_rect = egui::Rect::from_min_max(
+        Pos2::new(gutter_x, chart_rect.top()),
+        Pos2::new(chart_rect.right(), chart_rect.bottom()),
+    );
+    painter.rect_filled(gutter_rect, 0.0, crate::theme::BG);
+
+    // 2. Vertical hairline divider on the gutter's left edge.
+    painter.line_segment(
+        [
+            Pos2::new(gutter_x, chart_rect.top()),
+            Pos2::new(gutter_x, chart_rect.bottom()),
+        ],
+        Stroke::new(1.0, crate::theme::BORDER),
+    );
 
     let price_bottom = camera.y_offset;
     let price_top = camera.y_offset + chart_rect.height() as f64 / camera.y_scale;
@@ -30,17 +68,18 @@ pub fn paint_price_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
 
     let first = (price_bottom / interval).ceil() * interval;
 
+    // 3. Tick price labels (290, 280, 270, …).
     let mut price = first;
     while price < price_top {
         let y_pixel = ((price - camera.y_offset) * camera.y_scale) as f32;
         let y = chart_rect.bottom() - y_pixel;
 
         if y > chart_rect.top() + 10.0 && y < chart_rect.bottom() - 10.0 {
-            // Price label on right edge only — no grid line
+            // Price label right-aligned with PRICE_LABEL_RIGHT_PAD from the window edge.
             let label_text = format_price(price, interval);
             painter.text(
-                Pos2::new(chart_rect.right() - AXIS_WIDTH + 8.0, y),
-                egui::Align2::LEFT_CENTER,
+                Pos2::new(chart_rect.right() - PRICE_LABEL_RIGHT_PAD, y),
+                egui::Align2::RIGHT_CENTER,
                 &label_text,
                 font.clone(),
                 LABEL_COLOR,
@@ -50,7 +89,7 @@ pub fn paint_price_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
         price += interval;
     }
 
-    // Current price: short dashed line stub + highlighted label
+    // 4. Last-price highlighted badge (e.g. mint-green "276.83").
     if let Some(last) = data.instances.last() {
         let close = last.close as f64;
         let y_pixel = ((close - camera.y_offset) * camera.y_scale) as f32;
@@ -61,7 +100,7 @@ pub fn paint_price_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
             let last_index = (data.len() - 1) as f64;
             let last_x_pixel = ((last_index - camera.x_offset) * camera.x_scale) as f32;
             let dash_start_x = chart_rect.left() + last_x_pixel;
-            let dash_end_x = chart_rect.right() - AXIS_WIDTH;
+            let dash_end_x = gutter_x;
             let dash_len = 1.0;
             let gap_len = 2.0;
             let mut x = dash_start_x;
@@ -74,11 +113,19 @@ pub fn paint_price_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
                 x += dash_len + gap_len;
             }
 
-            // Highlighted price label
+            // Highlighted price label — auto-sized to fit the price text with
+            // tight padding, right-aligned with PRICE_LABEL_RIGHT_PAD inset.
             let label_text = format!("{:.2}", close);
+            let text_galley = painter.layout_no_wrap(
+                label_text.clone(),
+                font.clone(),
+                CURRENT_PRICE_TEXT,
+            );
+            let badge_width = text_galley.size().x + BADGE_PAD_X * 2.0;
+            let badge_right = chart_rect.right() - PRICE_LABEL_RIGHT_PAD;
             let label_rect = Rect::from_min_size(
-                Pos2::new(chart_rect.right() - AXIS_WIDTH, y - 10.0),
-                Vec2::new(AXIS_WIDTH, 20.0),
+                Pos2::new(badge_right - badge_width, y - 10.0),
+                Vec2::new(badge_width, 20.0),
             );
             painter.rect_filled(label_rect, 3.0, CURRENT_PRICE_BG);
             painter.text(

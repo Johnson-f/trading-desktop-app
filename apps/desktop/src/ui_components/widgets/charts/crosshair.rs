@@ -2,6 +2,7 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, Vec2};
 
 use super::camera::Camera;
 use super::candle::CandleData;
+use super::grid::AXIS_WIDTH;
 
 const CROSSHAIR_COLOR: Color32 = Color32::from_rgb(80, 80, 90);
 const LABEL_BG: Color32 = Color32::from_rgb(40, 40, 46);
@@ -23,15 +24,26 @@ pub fn paint_crosshair(
         _ => return,
     };
 
+    // Snap the vertical crosshair to the nearest candle's x-pixel when data
+    // is loaded; fall back to the raw cursor x when the chart is empty
+    // (e.g. before any symbol has been picked) so the crosshair still tracks
+    // the pointer in that state.
     let cursor_x_pixel = cursor_pos.x - chart_rect.left();
     let candle_index_f = camera.x_offset + cursor_x_pixel as f64 / camera.x_scale;
-    let candle_index = candle_index_f.round() as usize;
-    if candle_index >= data.len() {
-        return;
-    }
-    let candle = &data.instances[candle_index];
-    let snapped_x_pixel = ((candle_index as f64 - camera.x_offset) * camera.x_scale) as f32;
-    let snapped_x = chart_rect.left() + snapped_x_pixel;
+    let candle_index_rounded = candle_index_f.round() as usize;
+    let snapped_candle: Option<(usize, f32)> = if !data.is_empty()
+        && candle_index_rounded < data.len()
+    {
+        let snapped_x_pixel =
+            ((candle_index_rounded as f64 - camera.x_offset) * camera.x_scale) as f32;
+        Some((candle_index_rounded, chart_rect.left() + snapped_x_pixel))
+    } else {
+        None
+    };
+    let (candle_index, snapped_x) = match snapped_candle {
+        Some((idx, x)) => (Some(idx), x),
+        None => (None, cursor_pos.x),
+    };
 
     let full_painter = ui.painter_at(full_rect);
     full_painter.line_segment(
@@ -56,36 +68,47 @@ pub fn paint_crosshair(
         let price = camera.y_offset + cursor_y_pixel as f64 / camera.y_scale;
         let price_text = format!("{:.2}", price);
         let font = FontId::monospace(11.0);
-        let label_size = Vec2::new(70.0, 18.0);
+        // Auto-size the badge to its text content, capped so it can never
+        // exceed the gutter width (AXIS_WIDTH) minus the right-padding gap.
+        const PRICE_LABEL_RIGHT_PAD: f32 = 10.0;
+        const BADGE_PAD_X: f32 = 6.0;
+        let badge_height = 18.0_f32;
+        let text_galley = chart_painter.layout_no_wrap(
+            price_text.clone(),
+            font.clone(),
+            LABEL_TEXT,
+        );
+        let badge_width = (text_galley.size().x + BADGE_PAD_X * 2.0)
+            .min(AXIS_WIDTH - PRICE_LABEL_RIGHT_PAD - 2.0);
+        let badge_right = chart_rect.right() - PRICE_LABEL_RIGHT_PAD;
         let price_label_rect = Rect::from_min_size(
-            Pos2::new(
-                chart_rect.right() - label_size.x - 4.0,
-                cursor_pos.y - label_size.y / 2.0,
-            ),
-            label_size,
+            Pos2::new(badge_right - badge_width, cursor_pos.y - badge_height / 2.0),
+            Vec2::new(badge_width, badge_height),
         );
         chart_painter.rect_filled(price_label_rect, 3.0, LABEL_BG);
-        chart_painter.text(
-            price_label_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            &price_text,
-            font,
+        chart_painter.galley(
+            Pos2::new(
+                price_label_rect.center().x - text_galley.size().x / 2.0,
+                cursor_pos.y - text_galley.size().y / 2.0,
+            ),
+            text_galley,
             LABEL_TEXT,
         );
     }
 
-    let date_text = if candle_index < data.dates.len() {
-        let full = &data.dates[candle_index];
-        if full.len() >= 10 {
-            let yyyy = &full[0..4];
-            let mm = &full[5..7];
-            let dd = &full[8..10];
-            format!("{}/{}/{}", mm, dd, yyyy)
-        } else {
-            full.to_string()
+    let date_text = match candle_index {
+        Some(idx) if idx < data.dates.len() => {
+            let full = &data.dates[idx];
+            if full.len() >= 10 {
+                let yyyy = &full[0..4];
+                let mm = &full[5..7];
+                let dd = &full[8..10];
+                format!("{}/{}/{}", mm, dd, yyyy)
+            } else {
+                full.to_string()
+            }
         }
-    } else {
-        String::new()
+        _ => String::new(),
     };
     if !date_text.is_empty() {
         let font = FontId::monospace(11.0);
@@ -110,7 +133,7 @@ pub fn paint_crosshair(
     // OHLCV tooltip intentionally omitted — `paint_ohlc_row` in the chart's
     // main overlay draws a persistent header that already updates with the
     // cursor candle, so drawing a second tooltip here would just overlap it.
-    let _ = candle;
+    let _ = candle_index;
 }
 
 /// Paint a dashed vertical line at the world index corresponding to `date`.

@@ -1,5 +1,6 @@
 mod auth;
 mod components;
+mod theme;
 mod ui_components;
 
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
@@ -42,9 +43,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let clerk_cfg = auth::config::ClerkConfig::from_env()?;
-    let auth_state = auth::AuthStateHandle::new(auth::AuthState::Unauthenticated);
 
-    if let Some(refresh) = auth::storage::load_refresh_token()? {
+    // If the keychain has a refresh token, start in `Loading` state and
+    // kick off the background swap. Otherwise we're cold — start in
+    // `Unauthenticated` so the login screen renders immediately.
+    //
+    // Without this, there's a ~50-500ms window during cold start where
+    // the UI shows the login screen, the user clicks "Sign In" before
+    // the keychain refresh finishes, and an unwanted OAuth flow opens in
+    // the browser. The keychain restore wins the race silently and the
+    // abandoned browser auth-URL eventually times out 5 minutes later.
+    let stored_refresh = auth::storage::load_refresh_token()?;
+    let initial_state = if stored_refresh.is_some() {
+        auth::AuthState::Loading
+    } else {
+        auth::AuthState::Unauthenticated
+    };
+    let auth_state = auth::AuthStateHandle::new(initial_state);
+
+    if let Some(refresh) = stored_refresh {
         let cfg = clerk_cfg.clone();
         let state = auth_state.clone();
         runtime_handle.spawn(async move {
@@ -54,8 +71,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     state.set(auth::AuthState::from(set)).await;
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "keychain refresh failed; user must re-sign-in");
-                    let _ = auth::storage::delete_refresh_token();
+                    tracing::warn!(error = ?e, "keychain refresh failed; user must re-sign-in");
+                    // Don't delete the refresh token on transient errors —
+                    // a network blip or temporary Clerk 5xx shouldn't force a
+                    // full re-sign-in. The token is only confirmed-bad if the
+                    // server returned an explicit auth failure (400 / 401 / 403),
+                    // mirroring the policy already in `auth/refresh.rs`.
+                    let msg = e.to_string();
+                    if msg.contains("400") || msg.contains("401") || msg.contains("403") {
+                        let _ = auth::storage::delete_refresh_token();
+                    }
                     state.set(auth::AuthState::Unauthenticated).await;
                 }
             }
@@ -84,6 +109,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(move |cc| {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
+            // JetBrains Mono — used for tabular figures in chart price
+            // labels, axis ticks, and OHLC overlays. Registered as the
+            // primary `Monospace` family so `FontId::monospace(...)`
+            // resolves to it everywhere.
+            fonts.font_data.insert(
+                "JetBrainsMono".to_owned(),
+                egui::FontData::from_static(include_bytes!(
+                    "../assets/fonts/JetBrainsMono-Regular.ttf"
+                ))
+                .into(),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .insert(0, "JetBrainsMono".to_owned());
+
             cc.egui_ctx.set_fonts(fonts);
             let mut visuals = egui::Visuals::dark();
             let bg = egui::Color32::from_rgb(0, 0, 0);
@@ -164,34 +207,44 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // If unauthenticated, render the login screen and skip the rest.
-        if !matches!(
-            self.auth_state.blocking_snapshot(),
-            crate::auth::AuthState::Authenticated { .. }
-        ) {
-            let cfg = std::env::var("CLERK_ISSUER")
-                .and_then(|_| std::env::var("CLERK_CLIENT_ID"))
-                .ok()
-                .and_then(|_| crate::auth::config::ClerkConfig::from_env().ok());
-            if let Some(cfg) = cfg {
-                let runtime = tokio::runtime::Handle::current();
-                let screen = crate::auth::screen::LoginScreen::new(
-                    cfg,
-                    self.auth_state.clone(),
-                    runtime,
-                );
-                screen.show(ui.ctx());
-            } else {
-                #[allow(deprecated)]
-                egui::CentralPanel::default().show(ui.ctx(), |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(120.0);
-                        ui.heading("Auth misconfigured");
-                        ui.label("Set CLERK_ISSUER and CLERK_CLIENT_ID in apps/desktop/.env and restart.");
-                    });
-                });
+        // Route based on auth state before rendering the main UI.
+        match self.auth_state.blocking_snapshot() {
+            crate::auth::AuthState::Authenticated { .. } => {
+                // Fall through to the main UI below.
             }
-            return;
+            crate::auth::AuthState::Loading => {
+                // Keychain restore is in-flight. Render a non-interactive
+                // placeholder so the user can't click "Sign In" during this
+                // window and trigger an unwanted OAuth flow.
+                crate::auth::screen::LoadingScreen::default().show(ui.ctx());
+                return;
+            }
+            _ => {
+                // Unauthenticated or Failed — render the login screen.
+                let cfg = std::env::var("CLERK_ISSUER")
+                    .and_then(|_| std::env::var("CLERK_CLIENT_ID"))
+                    .ok()
+                    .and_then(|_| crate::auth::config::ClerkConfig::from_env().ok());
+                if let Some(cfg) = cfg {
+                    let runtime = tokio::runtime::Handle::current();
+                    let screen = crate::auth::screen::LoginScreen::new(
+                        cfg,
+                        self.auth_state.clone(),
+                        runtime,
+                    );
+                    screen.show(ui.ctx());
+                } else {
+                    #[allow(deprecated)]
+                    egui::CentralPanel::default().show(ui.ctx(), |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(120.0);
+                            ui.heading("Auth misconfigured");
+                            ui.label("Set CLERK_ISSUER and CLERK_CLIENT_ID in apps/desktop/.env and restart.");
+                        });
+                    });
+                }
+                return;
+            }
         }
 
         self.top_header.show(ui);

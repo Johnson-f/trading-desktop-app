@@ -1,12 +1,49 @@
-//! Full-window egui screen rendered when the user is not authenticated.
-//! Single button: "Sign in with Clerk". Shows a spinner during `Loading`
-//! and an error message + retry button on `Failed`.
+//! Full-window egui screens rendered in the unauthenticated / loading states.
+//!
+//! - `LoadingScreen` — shown during the cold-start keychain restore window
+//!   (~50-500ms). Non-interactive so the user cannot click "Sign In" and
+//!   accidentally open an OAuth flow while a keychain refresh is in flight.
+//! - `LoginScreen` — shown when unauthenticated or when a sign-in flow is
+//!   active (OAuth browser wait, failure + retry).
 
 use eframe::egui;
 
 use super::config::ClerkConfig;
 use super::signin;
 use super::state::{AuthState, AuthStateHandle};
+
+/// Non-interactive full-window placeholder shown while a keychain refresh is
+/// in flight at cold start. Prevents the user from clicking "Sign In" and
+/// opening an unwanted OAuth browser flow during the ~50-500ms restore window.
+#[derive(Default)]
+pub struct LoadingScreen;
+
+impl LoadingScreen {
+    pub fn show(&self, ctx: &egui::Context) {
+        #[allow(deprecated)]
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(crate::theme::BG))
+            .show(ctx, |ui| {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add(egui::Spinner::new().size(24.0));
+                            ui.add_space(12.0);
+                            ui.label(
+                                egui::RichText::new("Restoring session\u{2026}")
+                                    .size(13.0)
+                                    .color(crate::theme::TEXT_MUTED),
+                            );
+                        });
+                    },
+                );
+            });
+
+        // Request repaint so the spinner animates during the restore window.
+        ctx.request_repaint_after(std::time::Duration::from_millis(120));
+    }
+}
 
 pub struct LoginScreen {
     cfg: ClerkConfig,

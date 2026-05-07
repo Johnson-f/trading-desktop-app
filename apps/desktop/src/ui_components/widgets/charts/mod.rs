@@ -31,6 +31,102 @@ use interaction::InteractionState;
 use pane::SubPaneStack;
 use renderer::ChartCallback;
 
+/// Data window selection. Maps to a number of trailing candles shown in the
+/// chart's viewport. `Max` = show everything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Range {
+    D1,
+    D5,
+    M1,
+    M3,
+    M6,
+    YTD,
+    Y1,
+    Y5,
+    Max,
+}
+
+impl Range {
+    pub const ALL: &'static [Range] = &[
+        Range::D1,
+        Range::D5,
+        Range::M1,
+        Range::M3,
+        Range::M6,
+        Range::YTD,
+        Range::Y1,
+        Range::Y5,
+        Range::Max,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Range::D1 => "1D",
+            Range::D5 => "5D",
+            Range::M1 => "1M",
+            Range::M3 => "3M",
+            Range::M6 => "6M",
+            Range::YTD => "YTD",
+            Range::Y1 => "1Y",
+            Range::Y5 => "5Y",
+            Range::Max => "MAX",
+        }
+    }
+
+    /// Approximate trailing-candle count assuming 1 candle = 1 trading day.
+    /// `Max` and `YTD` return `None` (handled by the caller).
+    pub fn trailing_candles(self) -> Option<usize> {
+        match self {
+            Range::D1 => Some(1),
+            Range::D5 => Some(5),
+            Range::M1 => Some(21),
+            Range::M3 => Some(63),
+            Range::M6 => Some(126),
+            Range::YTD => None,
+            Range::Y1 => Some(252),
+            Range::Y5 => Some(252 * 5),
+            Range::Max => None,
+        }
+    }
+}
+
+/// Single-letter label for Timeframe — used in the compact footer row.
+/// Apply theme-aware visuals INSIDE a ComboBox popup closure. The popup
+/// uses a fresh egui `Area` whose Visuals don't inherit our parent-scope
+/// overrides, so without this the highlighted/selected row paints with
+/// egui's default bright blue `selection.bg_fill`. Call as the first
+/// statement inside `ComboBox::show_ui(...)`.
+fn apply_dropdown_popup_visuals(ui: &mut egui::Ui) {
+    use crate::theme::{BORDER, SURFACE, SURFACE_HIGH, TEXT_PRIMARY};
+    let v = &mut ui.style_mut().visuals;
+    v.extreme_bg_color = SURFACE;
+    v.window_fill = SURFACE;
+    v.panel_fill = SURFACE;
+    v.window_stroke = egui::Stroke::new(1.0, BORDER);
+    // Hovered row inside the popup — soft elevated band.
+    v.widgets.hovered.weak_bg_fill = SURFACE_HIGH;
+    v.widgets.hovered.bg_fill = SURFACE_HIGH;
+    v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+    v.widgets.active.weak_bg_fill = SURFACE_HIGH;
+    v.widgets.active.bg_fill = SURFACE_HIGH;
+    v.widgets.active.bg_stroke = egui::Stroke::NONE;
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+    // Selected row (when not hovered) — egui's `selectable_value` reads
+    // `selection.bg_fill` for this. Default is bright blue. Use a subtle
+    // SURFACE_HIGH band so the teal text on top reads cleanly.
+    v.selection.bg_fill = SURFACE_HIGH;
+    v.selection.stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+}
+
+fn timeframe_short(tf: Timeframe) -> &'static str {
+    match tf {
+        Timeframe::Daily => "D",
+        Timeframe::Weekly => "W",
+        Timeframe::Monthly => "M",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum LegendAction {
     None,
@@ -96,6 +192,13 @@ pub struct ChartWidget {
     /// Eye-icon flag: when true, committed drawings are skipped in the paint
     /// loop and selection. Purely transient (does NOT persist).
     drawings_hidden: bool,
+    /// When true the indicator-legend rows below the OHLC row are hidden.
+    /// Toggled by the caret button rendered between the OHLC row and the
+    /// legend. Purely UI state (not persisted).
+    indicator_legend_hidden: bool,
+    /// Currently selected data window (Range bar). Purely UI state; drives
+    /// camera positioning when clicked.
+    selected_range: Range,
 }
 
 const DRAWINGS_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
@@ -141,6 +244,8 @@ impl ChartWidget {
             pending_drawings_load: None,
             drawings_dirty_since: None,
             drawings_hidden: false,
+            indicator_legend_hidden: false,
+            selected_range: Range::Max,
         }
     }
 
@@ -223,7 +328,23 @@ impl ChartWidget {
         let cursor_idx = self.compute_cursor_idx(ui, chart_rect, &pane_slots);
         self.last_cursor_idx = cursor_idx;
 
+        // Faded chart watermark: "{SYMBOL}, {TF}" big and gray, behind candles.
+        // Must be painted BEFORE paint_wgpu_candles so egui submits this draw
+        // call first; WGPU then composites its candle layer on top.
+        if let Some(sym) = self.symbol.as_deref() {
+            let watermark = format!("{}, {}", sym, self.timeframe.short_label());
+            let painter = ui.painter_at(chart_rect);
+            painter.text(
+                chart_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                watermark,
+                egui::FontId::proportional(72.0),
+                egui::Color32::from_rgba_premultiplied(80, 80, 80, 24),
+            );
+        }
+
         self.paint_wgpu_candles(ui, chart_rect);
+
         self.paint_grid(ui, chart_rect, modal_open);
         {
             let camera = self.camera.lock();
@@ -250,13 +371,23 @@ impl ChartWidget {
         }
         self.drawing_settings_modal
             .show(ui.ctx(), &mut self.drawings, &self.data);
-        self.paint_crosshair(ui, chart_rect, full_rect);
 
         if let Some(ref date) = self.ghost_cursor_date {
             let camera = self.camera.lock();
             crosshair::paint_ghost(ui.painter(), chart_rect, &camera, &self.data, date);
         }
         self.ghost_cursor_date = None;
+
+        // Paint the price-scale gutter chrome BEFORE the crosshair so the
+        // gutter mask occludes drawings/indicators bleed-through, but the
+        // crosshair (which logically sits on top of the entire chart) paints
+        // OVER the gutter — its horizontal line and price label both remain
+        // visible in the gutter region.
+        {
+            let camera = self.camera.lock();
+            grid::paint_price_axis(ui, chart_rect, &camera, &self.data);
+        }
+        self.paint_crosshair(ui, chart_rect, full_rect);
 
         // Render notification toast
         self.paint_notification(ui, total_rect);
@@ -326,6 +457,15 @@ impl ChartWidget {
 
     pub fn drawings_hidden(&self) -> bool {
         self.drawings_hidden
+    }
+
+    /// Toggle whether the indicator-legend rows below the OHLC row are shown.
+    pub fn toggle_indicator_legend(&mut self) {
+        self.indicator_legend_hidden = !self.indicator_legend_hidden;
+    }
+
+    pub fn indicator_legend_hidden(&self) -> bool {
+        self.indicator_legend_hidden
     }
 
     /// Drain a completed async drawings load, if one finished. Called once per
@@ -633,56 +773,152 @@ impl ChartWidget {
         grid::paint_time_grid(ui, chart_rect, &camera, &self.data);
     }
 
-    /// Render the bottom-of-chart footer: Interval (timeframe) buttons on the
-    /// left, Auto (y-axis auto-scale) toggle on the right.
+    /// Render the compact single-row bottom footer (Webull-style):
+    ///   [Range: MAX ▼]   [Interval:  D  W  M]             [Auto]
     fn show_footer(&mut self, ui: &mut egui::Ui, footer_rect: egui::Rect) {
-        use eframe::egui::{Align, Color32, CornerRadius, Layout, RichText, Vec2};
+        // Hairline divider above the footer row.
+        ui.painter().line_segment(
+            [
+                egui::pos2(footer_rect.left() + 8.0, footer_rect.top()),
+                egui::pos2(footer_rect.right() - 8.0, footer_rect.top()),
+            ],
+            egui::Stroke::new(0.5, crate::theme::BORDER),
+        );
 
-        const ICON_COLOR: Color32 = Color32::from_rgb(120, 120, 130);
-        const ICON_HOVER: Color32 = Color32::from_rgb(200, 200, 210);
-        const ACCENT: Color32 = Color32::from_rgb(78, 205, 196);
-        const ACTIVE_BG: Color32 = Color32::from_rgb(35, 35, 40);
-        const BORDER: Color32 = Color32::from_rgb(50, 50, 55);
+        self.paint_footer_row(ui, footer_rect);
+    }
+
+    fn paint_footer_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        use crate::theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
+        use eframe::egui::{Align, ComboBox, CornerRadius, FontId, Layout, RichText, Vec2};
 
         let mut new_timeframe: Option<Timeframe> = None;
         let current_tf = self.timeframe;
 
-        ui.scope_builder(egui::UiBuilder::new().max_rect(footer_rect), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             ui.style_mut().interaction.tooltip_delay = 0.0;
+
+            // Restyle ComboBox visuals to match the dark theme. egui's
+            // defaults render a near-white inactive/hovered background that
+            // pops against the footer AND makes the selected/highlighted
+            // row's text unreadable inside the popup. Force every surface
+            // to use our theme tokens.
+            {
+                use crate::theme::{BG, BORDER, SURFACE, SURFACE_HIGH, TEXT_PRIMARY};
+                let visuals = &mut ui.style_mut().visuals;
+                // Trigger button (closed/open) — blend with the footer's BG
+                // so it reads as inline chrome, not a pill on top of the bar.
+                visuals.widgets.inactive.bg_fill = BG;
+                visuals.widgets.inactive.weak_bg_fill = BG;
+                visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                visuals.widgets.hovered.bg_fill = SURFACE;
+                visuals.widgets.hovered.weak_bg_fill = SURFACE;
+                visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                visuals.widgets.active.bg_fill = SURFACE;
+                visuals.widgets.active.weak_bg_fill = SURFACE;
+                visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+                visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                visuals.widgets.open.bg_fill = SURFACE;
+                visuals.widgets.open.weak_bg_fill = SURFACE;
+                visuals.widgets.open.bg_stroke = egui::Stroke::NONE;
+                visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                // Popup body fill — `extreme_bg_color` controls the dropdown
+                // panel's background. Default is white.
+                visuals.extreme_bg_color = SURFACE;
+                visuals.window_fill = SURFACE;
+                visuals.panel_fill = SURFACE;
+                visuals.window_stroke = egui::Stroke::new(1.0, BORDER);
+                // Hovered/selected row inside the popup — `selection.bg_fill`
+                // is what egui paints behind a highlighted `selectable_value`
+                // row. Default is bright blue; readable text on it is hard.
+                // Use a translucent teal-tinted band that keeps the white
+                // text on top fully legible.
+                visuals.selection.bg_fill = BG;
+                visuals.selection.stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+            }
+
             ui.horizontal_centered(|ui| {
                 ui.add_space(8.0);
-                ui.label(RichText::new("Interval:").size(11.0).color(ICON_COLOR));
+
+                /// Range dropdown
+                ui.label(RichText::new("Range:").size(11.0).color(TEXT_MUTED));
                 ui.add_space(4.0);
-                for tf in Timeframe::ALL {
-                    let selected = current_tf == *tf;
-                    let color = if selected { ACCENT } else { ICON_COLOR };
-                    let fill = if selected { ACTIVE_BG } else { Color32::TRANSPARENT };
-                    let btn = ui.add(
-                        egui::Button::new(
-                            RichText::new(tf.short_label()).size(11.0).color(color),
-                        )
-                        .fill(fill)
-                        .corner_radius(CornerRadius::same(3))
-                        .min_size(Vec2::new(28.0, 20.0)),
-                    );
-                    if btn.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+
+                let prev_range = self.selected_range;
+                ComboBox::from_id_salt("chart_range_dropdown")
+                    .selected_text(
+                        RichText::new(self.selected_range.label())
+                            .font(FontId::monospace(11.0))
+                            .color(ACCENT_TEAL),
+                    )
+                    .width(52.0)
+                    .show_ui(ui, |ui| {
+                        apply_dropdown_popup_visuals(ui);
+                        for r in Range::ALL {
+                            let is_selected = self.selected_range == *r;
+                            let text = RichText::new(r.label())
+                                .font(FontId::monospace(11.0))
+                                .color(if is_selected { ACCENT_TEAL } else { TEXT_MUTED });
+                            ui.selectable_value(&mut self.selected_range, *r, text);
+                        }
+                    });
+
+                if prev_range != self.selected_range {
+                    let r = self.selected_range;
+                    if let Some(n) = r.trailing_candles() {
+                        let mut camera = self.camera.lock();
+                        camera.fit_to_trailing(&self.data, n);
+                    } else {
+                        // Max or YTD — fit to all data (YTD refinement is future work)
+                        let mut camera = self.camera.lock();
+                        camera.fit_to_data(&self.data);
                     }
-                    if btn.clicked() && !selected {
-                        new_timeframe = Some(*tf);
-                    }
-                    btn.on_hover_text(tf.long_label());
                 }
 
-                // Auto toggle on the far right.
+                ui.add_space(12.0);
+
+                /// Interval dropdown
+                ui.label(RichText::new("Interval:").size(11.0).color(TEXT_MUTED));
+                ui.add_space(4.0);
+
+                let mut next_tf = current_tf;
+                ComboBox::from_id_salt("chart_interval_dropdown")
+                    .selected_text(
+                        RichText::new(timeframe_short(current_tf))
+                            .font(FontId::monospace(11.0))
+                            .color(ACCENT_TEAL),
+                    )
+                    .width(44.0)
+                    .show_ui(ui, |ui| {
+                        apply_dropdown_popup_visuals(ui);
+                        for tf in Timeframe::ALL {
+                            let is_selected = current_tf == *tf;
+                            let text = RichText::new(timeframe_short(*tf))
+                                .font(FontId::monospace(11.0))
+                                .color(if is_selected { ACCENT_TEAL } else { TEXT_MUTED });
+                            ui.selectable_value(&mut next_tf, *tf, text);
+                        }
+                    });
+
+                if next_tf != current_tf {
+                    new_timeframe = Some(next_tf);
+                }
+
+                /// Auto toggle — far right
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_space(8.0);
                     let mut camera = self.camera.lock();
                     let is_auto = camera.auto_scale_y;
-                    let color = if is_auto { ACCENT } else { ICON_HOVER };
-                    let fill = if is_auto { Color32::TRANSPARENT } else { ACTIVE_BG };
+                    let color = if is_auto { ACCENT_TEAL } else { TEXT_MUTED };
+                    let fill = if is_auto {
+                        egui::Color32::TRANSPARENT
+                    } else {
+                        SURFACE_HIGH
+                    };
                     let stroke = if is_auto {
-                        egui::Stroke::new(1.0, ACCENT)
+                        egui::Stroke::new(1.0, ACCENT_TEAL)
                     } else {
                         egui::Stroke::new(0.5, BORDER)
                     };
@@ -709,7 +945,7 @@ impl ChartWidget {
     }
 
     fn paint_main_overlays(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         chart_rect: egui::Rect,
         cursor_idx: Option<usize>,
@@ -729,14 +965,91 @@ impl ChartWidget {
             }
         }
 
-        // OHLC header row, painted above the indicator legend.
+
+        // Ticker info row (above OHLC). Returns its height so we can offset
+        // the OHLC row directly underneath.
+        let ticker_anchor = egui::Pos2::new(chart_rect.left() + 8.0, chart_rect.top() + 8.0);
+        let ticker_height = if let Some(sym) = self.symbol.as_deref() {
+            paint_ticker_info_row(
+                ui,
+                chart_rect,
+                sym,
+                None, // company name not yet plumbed
+                self.timeframe.short_label(),
+                ticker_anchor,
+            )
+        } else {
+            0.0
+        };
+
+        // OHLC header row, painted below the ticker info row.
+        let ohlc_anchor = egui::Pos2::new(
+            chart_rect.left() + 8.0,
+            chart_rect.top() + 8.0 + ticker_height + 4.0,
+        );
         paint_ohlc_row(
             ui,
             chart_rect,
             &self.data,
             cursor_idx,
-            egui::Pos2::new(chart_rect.left() + 8.0, chart_rect.top() + 8.0),
+            ohlc_anchor,
         );
+
+        // Approximate OHLC row height (monospace 12px text is ~14px tall).
+        let ohlc_height: f32 = 14.0;
+
+        // Caret toggle button — rendered between OHLC row and indicator legend.
+        {
+            use egui::{Align2, FontId, Pos2, Rect, Sense, Vec2};
+            use crate::theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
+
+            let btn_top = chart_rect.top() + 8.0 + ticker_height + 4.0 + ohlc_height + 6.0;
+            let btn_rect = Rect::from_min_size(
+                Pos2::new(chart_rect.left() + 8.0, btn_top),
+                Vec2::new(16.0, 16.0),
+            );
+
+            let toggle_resp = ui.interact(
+                btn_rect,
+                ui.id().with("legend_toggle"),
+                Sense::click(),
+            );
+
+            if toggle_resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                ui.painter_at(chart_rect).rect_filled(btn_rect, 4.0, HOVER_BG);
+            }
+
+            let icon = if self.indicator_legend_hidden {
+                egui_phosphor::regular::CARET_UP
+            } else {
+                egui_phosphor::regular::CARET_DOWN
+            };
+            let icon_color = if toggle_resp.hovered() {
+                ICON_HOVER
+            } else {
+                ICON_INACTIVE
+            };
+            ui.painter_at(chart_rect).text(
+                btn_rect.center(),
+                Align2::CENTER_CENTER,
+                icon,
+                FontId::proportional(12.0),
+                icon_color,
+            );
+
+            let was_clicked = toggle_resp.clicked();
+            let tooltip_text = if self.indicator_legend_hidden {
+                "Show Indicator Values"
+            } else {
+                "Hide Indicator Values"
+            };
+            toggle_resp.on_hover_text(tooltip_text);
+
+            if was_clicked {
+                self.indicator_legend_hidden = !self.indicator_legend_hidden;
+            }
+        }
 
         // Snapshot legend items grouped by def_id. Release the manager borrow
         // before `draw_legend_row` takes &mut ui.
@@ -775,45 +1088,47 @@ impl ChartWidget {
         }
 
         let mut actions = Vec::new();
-        for (i, group) in groups.into_iter().enumerate() {
-            // Flatten every member's entries into a single row. Family name
-            // prefix is drawn only when there is more than one member.
-            let display_name = if group.members.len() > 1 {
-                group.family_name.as_str()
-            } else {
-                ""
-            };
-            let combined: Vec<indicators::LegendEntry> = group
-                .members
-                .iter()
-                .flat_map(|m| m.entries.iter().cloned())
-                .collect();
-            let first_id = group.members[0].instance_id;
-            let first_params = group.members[0].params.clone();
+        if !self.indicator_legend_hidden {
+            for (i, group) in groups.into_iter().enumerate() {
+                // Flatten every member's entries into a single row. Family name
+                // prefix is drawn only when there is more than one member.
+                let display_name = if group.members.len() > 1 {
+                    group.family_name.as_str()
+                } else {
+                    ""
+                };
+                let combined: Vec<indicators::LegendEntry> = group
+                    .members
+                    .iter()
+                    .flat_map(|m| m.entries.iter().cloned())
+                    .collect();
+                let first_id = group.members[0].instance_id;
+                let first_params = group.members[0].params.clone();
 
-            let action = draw_legend_row(
-                ui,
-                chart_rect,
-                egui::Pos2::new(
-                    chart_rect.left() + 8.0,
-                    chart_rect.top() + 28.0 + (i as f32 * 14.0),
-                ),
-                display_name,
-                &combined,
-                &format!("main-{}", group.def_id),
-            );
-            match action {
-                LegendAction::None => {}
-                LegendAction::OpenSettings => {
-                    // Target the first instance — settings modal edits one
-                    // instance at a time.
-                    actions.push((first_id, action, first_params));
-                }
-                LegendAction::Remove => {
-                    // Fan out: emit one Remove per member so the caller's
-                    // per-id apply loop clears the whole family.
-                    for m in &group.members {
-                        actions.push((m.instance_id, LegendAction::Remove, m.params.clone()));
+                let action = draw_legend_row(
+                    ui,
+                    chart_rect,
+                    egui::Pos2::new(
+                        chart_rect.left() + 8.0,
+                        chart_rect.top() + 28.0 + ticker_height + (i as f32 * 16.0),
+                    ),
+                    display_name,
+                    &combined,
+                    &format!("main-{}", group.def_id),
+                );
+                match action {
+                    LegendAction::None => {}
+                    LegendAction::OpenSettings => {
+                        // Target the first instance — settings modal edits one
+                        // instance at a time.
+                        actions.push((first_id, action, first_params));
+                    }
+                    LegendAction::Remove => {
+                        // Fan out: emit one Remove per member so the caller's
+                        // per-id apply loop clears the whole family.
+                        for m in &group.members {
+                            actions.push((m.instance_id, LegendAction::Remove, m.params.clone()));
+                        }
                     }
                 }
             }
@@ -1409,18 +1724,102 @@ fn paint_ohlc_row(
         (format_with_commas(c.volume as i64), value_color),
     ];
 
+    // Pass 1: layout galleys + measure total width.
+    let galleys: Vec<(std::sync::Arc<egui::Galley>, Color32)> = parts
+        .into_iter()
+        .map(|(text, color)| (painter.layout_no_wrap(text, font.clone(), color), color))
+        .collect();
+    let inter_gap = 6.0;
+
+    // Pass 2: paint galleys.
     let mut x = anchor.x;
     let mut first = true;
-    for (text, color) in parts {
+    for (g, color) in galleys {
         if !first {
-            x += 6.0;
+            x += inter_gap;
         }
         first = false;
-        let galley = painter.layout_no_wrap(text, font.clone(), color);
-        let size = galley.size();
-        painter.galley(Pos2::new(x, anchor.y), galley, color);
+        let size = g.size();
+        painter.galley(Pos2::new(x, anchor.y), g, color);
         x += size.x;
     }
+}
+
+/// Paint the ticker identity row (symbol, company name, timeframe,
+/// "Adjusted" label) at `anchor` as a row of rounded-rect chips.
+/// Each chip has a faint 1px border, 4px corner radius, 6px horizontal
+/// padding, and 3px vertical padding. Chips are separated by 4px gaps.
+///
+/// Returns the chip row's full height (~22px) so the caller can offset
+/// the OHLC row directly underneath.
+fn paint_ticker_info_row(
+    ui: &egui::Ui,
+    clip_rect: egui::Rect,
+    symbol: &str,
+    company_name: Option<&str>,
+    timeframe_label: &str,
+    anchor: egui::Pos2,
+) -> f32 {
+    use egui::{FontId, Pos2, Rect, Stroke, Vec2};
+    use crate::theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+
+    let painter = ui.painter_at(clip_rect);
+
+    // Uniform chip height regardless of font size, so all chips align.
+    let chip_height: f32 = 22.0;
+    let h_pad: f32 = 6.0; // horizontal padding inside chip (each side)
+    let v_pad: f32 = 3.0; // vertical padding (each side) — for centering text
+    let chip_gap: f32 = 4.0; // gap between chips
+    let corner_radius: f32 = 4.0;
+
+    // Segment: (galley, color)
+    let sym_font = FontId::proportional(14.0);
+    let small_font = FontId::proportional(12.0);
+
+    let mut segments: Vec<(std::sync::Arc<egui::Galley>, egui::Color32)> = Vec::new();
+
+    let sym_galley = painter.layout_no_wrap(symbol.to_string(), sym_font, TEXT_PRIMARY);
+    segments.push((sym_galley, TEXT_PRIMARY));
+
+    if let Some(name) = company_name {
+        let g = painter.layout_no_wrap(name.to_string(), small_font.clone(), TEXT_MUTED);
+        segments.push((g, TEXT_MUTED));
+    }
+
+    let tf_g = painter.layout_no_wrap(timeframe_label.to_string(), small_font.clone(), TEXT_MUTED);
+    segments.push((tf_g, TEXT_MUTED));
+
+    let adj_g = painter.layout_no_wrap("Adjusted".to_string(), small_font, TEXT_DIM);
+    segments.push((adj_g, TEXT_DIM));
+
+    // Paint each segment as a chip.
+    let mut x = anchor.x;
+    let _ = v_pad; // used conceptually; text is vertically centered via y arithmetic
+    for (g, color) in segments {
+        let text_w = g.size().x;
+        let text_h = g.size().y;
+
+        let chip_rect = Rect::from_min_size(
+            Pos2::new(x, anchor.y),
+            Vec2::new(text_w + h_pad * 2.0, chip_height),
+        );
+
+        // Faint border, no fill.
+        painter.rect_stroke(
+            chip_rect,
+            corner_radius,
+            Stroke::new(1.0, BORDER),
+            egui::StrokeKind::Inside,
+        );
+
+        // Text vertically centered inside the chip.
+        let text_y = anchor.y + (chip_height - text_h) * 0.5;
+        painter.galley(Pos2::new(x + h_pad, text_y), g, color);
+
+        x += chip_rect.width() + chip_gap;
+    }
+
+    chip_height // Replaces sym_height; caller uses this as the OHLC row offset.
 }
 
 /// Sort key used to order family members (e.g. multiple EMAs) by period
@@ -1460,7 +1859,7 @@ fn draw_legend_row(
     use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 
     let painter = ui.painter_at(clip_rect);
-    let text_font = FontId::monospace(10.0);
+    let text_font = FontId::monospace(12.0);
     let icon_font = FontId::proportional(13.0);
     let name_color = Color32::from_rgb(240, 240, 242);
     let icon_color = Color32::from_rgb(160, 160, 170);

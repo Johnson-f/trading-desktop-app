@@ -46,6 +46,23 @@ impl Camera {
         self.auto_scale_y(data);
     }
 
+    /// Fit the viewport to the last `n` candles of `data` (or all of them
+    /// if `n` exceeds the dataset). Used by the Range bar to show a fixed
+    /// trailing window without changing the x_scale (zoom level).
+    pub fn fit_to_trailing(&mut self, data: &CandleData, n: usize) {
+        if data.is_empty() {
+            return;
+        }
+        let total = data.len();
+        let start = total.saturating_sub(n);
+        // Compute how many candles actually fit at the current zoom level.
+        // We want the last `n` candles centred/right-aligned in the viewport,
+        // so we set x_offset to `start` (the first visible bar index).
+        let visible = (self.viewport.x as f64 / self.x_scale).min(n as f64);
+        self.x_offset = (total as f64 - visible).max(start as f64);
+        self.auto_scale_y(data);
+    }
+
     pub fn auto_scale_y(&mut self, data: &CandleData) {
         if !self.auto_scale_y || data.len() == 0 {
             return;
@@ -69,9 +86,14 @@ impl Camera {
         }
 
         let range = (max_price - min_price) as f64;
-        let padding = range * 0.05;
-        self.y_offset = min_price as f64 - padding;
-        let total_range = range + padding * 2.0;
+        // Asymmetric padding: more headroom at the top so the highest candle
+        // wick doesn't reach the OHLC / ticker label band painted at the
+        // chart's top-left. Bottom keeps a tighter 5% pad so the chart still
+        // sits low and uses the available canvas height.
+        let bottom_padding = range * 0.09;
+        let top_padding = range * 0.18;
+        self.y_offset = min_price as f64 - bottom_padding;
+        let total_range = range + bottom_padding + top_padding;
         if total_range > 0.0 {
             self.y_scale = self.viewport.y as f64 / total_range;
         }

@@ -1,24 +1,13 @@
+use crate::theme::{
+    SURFACE, BORDER, BORDER_HOVER, ACCENT, ACCENT_BG, TEXT_PRIMARY, TEXT_MUTED,
+    ICON_INACTIVE, ICON_HOVER, ICON_ACTIVE, HOVER_BG, NOTIFICATION_DOT, AVATAR,
+    HEADER_HEIGHT, ICON_ROUNDING, SURFACE_HIGH,
+};
 use eframe::egui::{
     self, Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Stroke, Vec2,
 };
 
-// ── Color Palette ──────────────────────────────────────────────
-const HEADER_BG: Color32 = Color32::from_rgb(24, 24, 28);
-const BORDER: Color32 = Color32::from_rgb(30, 30, 33);
-const ACCENT: Color32 = Color32::from_rgb(99, 102, 241);
-const ACCENT_BG: Color32 = Color32::from_rgb(33, 33, 54);
-const TEXT_PRIMARY: Color32 = Color32::from_rgb(240, 240, 242);
-const TEXT_MUTED: Color32 = Color32::from_rgb(63, 63, 63);
-const ICON_INACTIVE: Color32 = Color32::from_rgba_premultiplied(240, 240, 242, 89); // 35%
-const ICON_HOVER: Color32 = Color32::from_rgba_premultiplied(240, 240, 242, 153); // 60%
-const ICON_ACTIVE: Color32 = Color32::from_rgb(240, 240, 242); // full
-const HOVER_BG: Color32 = Color32::from_rgb(30, 30, 33);
-const NOTIFICATION_DOT: Color32 = Color32::from_rgb(239, 68, 68);
-const AVATAR_COLOR: Color32 = Color32::from_rgb(119, 98, 243); // midpoint of indigo→violet
-
 // ── Dimensions ─────────────────────────────────────────────────
-const HEADER_HEIGHT: f32 = 44.0;
-const ICON_ROUNDING: f32 = 6.0;
 const AVATAR_SIZE: f32 = 28.0;
 const PILL_WIDTH: f32 = 12.0;
 const PILL_HEIGHT: f32 = 2.0;
@@ -122,32 +111,89 @@ impl TopHeader {
     }
 
     fn paint_search(&mut self, ui: &mut egui::Ui) {
-        ui.scope(|ui| {
-            // Force all TextEdit widget visuals to use the header background
-            let style = ui.style_mut();
-            style.visuals.extreme_bg_color = Color32::from_rgb(34, 34, 38);
-            style.visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
-            style.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-            style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_MUTED);
-            style.visuals.widgets.hovered.bg_fill = Color32::TRANSPARENT;
-            style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, BORDER);
-            style.visuals.widgets.active.bg_fill = Color32::TRANSPARENT;
-            style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, BORDER);
-            style.visuals.selection.bg_fill = ACCENT_BG;
+        use eframe::egui::{Frame, Margin};
 
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                ui.label(
-                    RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
-                        .size(14.0)
-                        .color(ICON_INACTIVE),
-                );
-                let te = egui::TextEdit::singleline(&mut self.search_query)
-                    .hint_text(RichText::new("Search and view stocks").color(TEXT_MUTED))
-                    .text_color(TEXT_PRIMARY)
-                    .margin(egui::Margin::symmetric(4, 6));
-                ui.add_sized(Vec2::new(240.0, HEADER_HEIGHT - 12.0), te);
+        const SEARCH_PILL_WIDTH: f32 = 280.0;
+        const SEARCH_PILL_HEIGHT: f32 = 32.0;
+
+        // Determine hover state by checking if the pointer is over the
+        // pill region before allocating it.
+        let is_hovered = ui
+            .ctx()
+            .pointer_hover_pos()
+            .map(|p| {
+                // We don't have the rect yet; use a rough cursor proximity
+                // check — the frame will handle the precise interaction.
+                let _ = p;
+                false
+            })
+            .unwrap_or(false);
+        let _ = is_hovered; // reserved for future hover-border upgrade
+
+        let frame = Frame::default()
+            .fill(SURFACE_HIGH)
+            .stroke(Stroke::new(1.0, BORDER))
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin {
+                left: 12,
+                right: 12,
+                top: 0,
+                bottom: 0,
             });
+
+        frame.show(ui, |ui| {
+            ui.set_min_size(Vec2::new(SEARCH_PILL_WIDTH, SEARCH_PILL_HEIGHT));
+            ui.set_max_size(Vec2::new(SEARCH_PILL_WIDTH, SEARCH_PILL_HEIGHT));
+
+            // Force a left-to-right layout for the inner row. The parent
+            // `paint` loop runs inside a right-to-left section (avatar +
+            // bell on the right side of the header), which would otherwise
+            // flip the icon and text inside this pill. Pinning to LTR keeps
+            // the icon on the left and the text to its right, matching
+            // Webull's pattern.
+            ui.with_layout(
+                eframe::egui::Layout::left_to_right(eframe::egui::Align::Center),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                    // Magnifying glass icon — small, muted.
+                    ui.label(
+                        RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
+                            .size(13.0)
+                            .color(TEXT_MUTED),
+                    );
+
+                    // Make the TextEdit transparent and FRAMELESS so the outer
+                    // pill is the only visible chrome — no internal cyan focus
+                    // ring around just the text portion.
+                    ui.scope(|ui| {
+                        let style = ui.style_mut();
+                        style.visuals.extreme_bg_color = Color32::TRANSPARENT;
+                        style.visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+                        style.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
+                        style.visuals.widgets.hovered.bg_fill = Color32::TRANSPARENT;
+                        style.visuals.widgets.hovered.bg_stroke = Stroke::NONE;
+                        style.visuals.widgets.active.bg_fill = Color32::TRANSPARENT;
+                        style.visuals.widgets.active.bg_stroke = Stroke::NONE;
+                        style.visuals.widgets.open.bg_fill = Color32::TRANSPARENT;
+                        style.visuals.widgets.open.bg_stroke = Stroke::NONE;
+                        style.visuals.selection.bg_fill = ACCENT_BG;
+                        style.visuals.selection.stroke = Stroke::NONE;
+
+                        let te = egui::TextEdit::singleline(&mut self.search_query)
+                            .hint_text(
+                                RichText::new("Search and view in Stocks").color(TEXT_MUTED),
+                            )
+                            .text_color(TEXT_PRIMARY)
+                            .desired_width(f32::INFINITY)
+                            .margin(Margin::ZERO);
+
+                        // Sized to natural text height so cross-axis centering
+                        // vertically aligns the text in the 32px pill.
+                        ui.add_sized(Vec2::new(ui.available_width(), 18.0), te);
+                    });
+                },
+            );
         });
     }
 
@@ -179,7 +225,7 @@ impl TopHeader {
         if has_notification {
             let dot_center = Pos2::new(btn.rect.right() - 7.0, btn.rect.top() + 7.0);
             ui.painter()
-                .circle_filled(dot_center, DOT_RADIUS + 1.5, HEADER_BG);
+                .circle_filled(dot_center, DOT_RADIUS + 1.5, SURFACE);
             ui.painter()
                 .circle_filled(dot_center, DOT_RADIUS, NOTIFICATION_DOT);
         }
@@ -192,7 +238,7 @@ impl TopHeader {
         let color = if response.hovered() {
             Color32::from_rgb(130, 115, 245)
         } else {
-            AVATAR_COLOR
+            AVATAR
         };
 
         if response.hovered() {
@@ -213,7 +259,7 @@ impl TopHeader {
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
         egui::Frame::new()
-            .fill(HEADER_BG)
+            .fill(SURFACE)
             .inner_margin(egui::Margin {
                 left: 76,
                 right: 16,
