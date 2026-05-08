@@ -203,9 +203,9 @@ pub struct YahooClient {
 /// Returns the delay in seconds, or `None` if the header is missing or
 /// unparseable. Negative deltas (e.g. an HTTP-date in the past) are
 /// clamped to 0.
-fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+fn parse_retry_after(headers: &rquest::header::HeaderMap) -> Option<u64> {
     let value = headers
-        .get(reqwest::header::RETRY_AFTER)?
+        .get(rquest::header::RETRY_AFTER)?
         .to_str()
         .ok()?
         .trim();
@@ -227,7 +227,7 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 
 impl YahooClient {
     /// Check response status and return it if successful, or map the error code
-    fn check_response(response: reqwest::Response) -> Result<reqwest::Response> {
+    fn check_response(response: rquest::Response) -> Result<rquest::Response> {
         let status = response.status();
         if !status.is_success() {
             return Err(Self::map_http_status(status.as_u16(), response.headers()));
@@ -236,7 +236,7 @@ impl YahooClient {
     }
 
     /// HTTP error mapping
-    fn map_http_status(status: u16, headers: &reqwest::header::HeaderMap) -> FinanceError {
+    fn map_http_status(status: u16, headers: &rquest::header::HeaderMap) -> FinanceError {
         match status {
             401 => FinanceError::AuthenticationFailed {
                 context: "HTTP 401 Unauthorized".to_string(),
@@ -256,14 +256,14 @@ impl YahooClient {
         }
     }
 
-    /// Map reqwest errors to FinanceError, using configured timeout for error messages
-    fn map_request_error(&self, e: reqwest::Error) -> FinanceError {
+    /// Map rquest errors to FinanceError, using configured timeout for error messages
+    fn map_request_error(&self, e: rquest::Error) -> FinanceError {
         if e.is_timeout() {
             FinanceError::Timeout {
                 timeout_ms: self.config.timeout.as_millis() as u64,
             }
         } else {
-            FinanceError::HttpError(e)
+            FinanceError::RquestHttpError(e)
         }
     }
 
@@ -296,7 +296,7 @@ impl YahooClient {
     /// - Adds the crumb token as a query parameter
     /// - Includes cookies via reqwest's cookie store
     /// - Sets proper headers
-    pub async fn request_with_crumb(&self, url: &str) -> Result<reqwest::Response> {
+    pub async fn request_with_crumb(&self, url: &str) -> Result<rquest::Response> {
         yahoo_rate_limiter().await.acquire().await;
 
         let request = self
@@ -395,7 +395,7 @@ impl YahooClient {
         &self,
         url: &str,
         body: &T,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<rquest::Response> {
         // Build URL with crumb
         let url_with_crumb = format!(
             "{}{}crumb={}",
@@ -427,7 +427,7 @@ impl YahooClient {
         &self,
         url: &str,
         params: &T,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<rquest::Response> {
         let request = self
             .auth
             .http_client
@@ -882,8 +882,8 @@ mod tests {
 
     #[test]
     fn retry_after_parses_integer_seconds() {
-        let mut h = reqwest::header::HeaderMap::new();
-        h.insert(reqwest::header::RETRY_AFTER, "120".parse().unwrap());
+        let mut h = rquest::header::HeaderMap::new();
+        h.insert(rquest::header::RETRY_AFTER, "120".parse().unwrap());
         assert_eq!(parse_retry_after(&h), Some(120));
     }
 
@@ -891,8 +891,8 @@ mod tests {
     fn retry_after_parses_http_date() {
         let when = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
         let value = httpdate::fmt_http_date(when);
-        let mut h = reqwest::header::HeaderMap::new();
-        h.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+        let mut h = rquest::header::HeaderMap::new();
+        h.insert(rquest::header::RETRY_AFTER, value.parse().unwrap());
         let got = parse_retry_after(&h).expect("parses");
         // Allow ±2s slack for test scheduling.
         assert!((58..=62).contains(&got), "got {got}");
@@ -900,14 +900,14 @@ mod tests {
 
     #[test]
     fn retry_after_missing_returns_none() {
-        let h = reqwest::header::HeaderMap::new();
+        let h = rquest::header::HeaderMap::new();
         assert_eq!(parse_retry_after(&h), None);
     }
 
     #[test]
     fn retry_after_garbage_returns_none() {
-        let mut h = reqwest::header::HeaderMap::new();
-        h.insert(reqwest::header::RETRY_AFTER, "tomorrow".parse().unwrap());
+        let mut h = rquest::header::HeaderMap::new();
+        h.insert(rquest::header::RETRY_AFTER, "tomorrow".parse().unwrap());
         assert_eq!(parse_retry_after(&h), None);
     }
 
@@ -915,15 +915,15 @@ mod tests {
     fn retry_after_past_http_date_clamps_to_zero() {
         let when = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let value = httpdate::fmt_http_date(when);
-        let mut h = reqwest::header::HeaderMap::new();
-        h.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+        let mut h = rquest::header::HeaderMap::new();
+        h.insert(rquest::header::RETRY_AFTER, value.parse().unwrap());
         assert_eq!(parse_retry_after(&h), Some(0));
     }
 
     #[test]
     fn map_http_status_429_populates_retry_after() {
-        let mut h = reqwest::header::HeaderMap::new();
-        h.insert(reqwest::header::RETRY_AFTER, "30".parse().unwrap());
+        let mut h = rquest::header::HeaderMap::new();
+        h.insert(rquest::header::RETRY_AFTER, "30".parse().unwrap());
         let err = YahooClient::map_http_status(429, &h);
         match err {
             FinanceError::RateLimited { retry_after } => assert_eq!(retry_after, Some(30)),

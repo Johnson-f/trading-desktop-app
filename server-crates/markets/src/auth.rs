@@ -1,7 +1,8 @@
 use crate::client::ClientConfig;
 use crate::endpoints::urls::{api, base};
 use crate::error::{FinanceError, Result};
-use reqwest::Proxy;
+use rquest::Proxy;
+use rquest_util::Emulation;
 use std::time::{Duration, Instant};
 use tokio::sync::{OnceCell, RwLock};
 use tracing::{debug, info, warn};
@@ -10,8 +11,11 @@ use tracing::{debug, info, warn};
 // Authentication Constants
 // ============================================================================
 
-/// User agent to use for requests (Chrome on Windows)
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+/// Browser to impersonate when talking to Yahoo. Picks the TLS Client
+/// Hello, HTTP/2 SETTINGS, and User-Agent that match this Chrome
+/// version. Bump to the latest variant when newer ones land — older
+/// fingerprints get more attention from bot detectors over time.
+const YAHOO_EMULATION: Emulation = Emulation::Chrome136;
 
 /// Timeout for authentication requests
 const AUTH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -30,13 +34,13 @@ const AUTH_MAX_AGE: Duration = Duration::from_secs(3600); // 1 hour
 const CRUMB_TTL: Duration = Duration::from_secs(25 * 60);
 
 /// Cached authentication: shared across every `YahooAuth::authenticate_with_config`
-/// caller in the process. Cloning is cheap (the `reqwest::Client` is internally
+/// caller in the process. Cloning is cheap (the `rquest::Client` is internally
 /// `Arc`-wrapped and the crumb is a short String), so the cache hands out
 /// snapshots rather than references.
 #[derive(Clone)]
 struct CachedAuth {
     crumb: String,
-    http_client: reqwest::Client,
+    http_client: rquest::Client,
     acquired_at: Instant,
 }
 
@@ -60,8 +64,10 @@ pub struct YahooAuth {
     pub crumb: String,
     /// Last time auth was refreshed
     pub last_refresh: Instant,
-    /// HTTP client with cookies
-    pub(crate) http_client: reqwest::Client,
+    /// HTTP client with cookies. `rquest::Client` mimics Chrome's TLS
+    /// + HTTP/2 fingerprint so Yahoo's bot detection can't tell us
+    /// apart from a real browser.
+    pub(crate) http_client: rquest::Client,
 }
 
 impl std::fmt::Debug for YahooAuth {
@@ -122,11 +128,15 @@ impl YahooAuth {
 
         // Build a cookie-bearing client per refresh. The cookies established
         // by visiting fc.yahoo.com are required for the crumb endpoint.
-        let mut builder = reqwest::Client::builder()
+        // The `.emulation(...)` call configures the TLS Client Hello,
+        // HTTP/2 SETTINGS frame, header order, and User-Agent to match
+        // the chosen Chrome version — Yahoo's bot detection can't tell
+        // us apart from a real browser at the wire level.
+        let mut builder = rquest::Client::builder()
+            .emulation(YAHOO_EMULATION)
             .cookie_store(true)
             .timeout(config.timeout)
-            .connect_timeout(AUTH_TIMEOUT)
-            .user_agent(USER_AGENT);
+            .connect_timeout(AUTH_TIMEOUT);
 
         if let Some(proxy_url) = &config.proxy {
             debug!("Configuring proxy: {}", proxy_url);
@@ -198,7 +208,7 @@ impl YahooAuth {
 }
 
 /// Fetch crumb token from Yahoo Finance
-async fn get_crumb(client: &reqwest::Client, crumb_url: &str) -> Result<String> {
+async fn get_crumb(client: &rquest::Client, crumb_url: &str) -> Result<String> {
     let response = client
         .get(crumb_url)
         .send()
@@ -248,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_is_expired() {
-        let client = reqwest::Client::new();
+        let client = rquest::Client::new();
         let auth = YahooAuth {
             crumb: "test".to_string(),
             last_refresh: Instant::now() - std::time::Duration::from_secs(7200),
@@ -260,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_can_refresh() {
-        let client = reqwest::Client::new();
+        let client = rquest::Client::new();
         let auth = YahooAuth {
             crumb: "test".to_string(),
             last_refresh: Instant::now() - std::time::Duration::from_secs(60),
@@ -278,7 +288,7 @@ mod tests {
     async fn cache_invalidate_clears_state() {
         YahooAuth::invalidate().await;
         let cache = auth_cache().await;
-        let client = reqwest::Client::new();
+        let client = rquest::Client::new();
         *cache.write().await = Some(CachedAuth {
             crumb: "stale".into(),
             http_client: client,
@@ -301,7 +311,7 @@ mod tests {
             let cache = auth_cache().await;
             *cache.write().await = Some(CachedAuth {
                 crumb: "test-crumb-abc".into(),
-                http_client: reqwest::Client::new(),
+                http_client: rquest::Client::new(),
                 acquired_at: Instant::now(),
             });
         }
@@ -316,7 +326,7 @@ mod tests {
 
     #[test]
     fn cached_auth_freshness_uses_ttl() {
-        let client = reqwest::Client::new();
+        let client = rquest::Client::new();
         let fresh = CachedAuth {
             crumb: "x".into(),
             http_client: client.clone(),

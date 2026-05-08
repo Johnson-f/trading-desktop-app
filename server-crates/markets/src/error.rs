@@ -26,9 +26,17 @@ pub enum FinanceError {
         retry_after: Option<u64>,
     },
 
-    /// HTTP request error
+    /// HTTP request error from `reqwest` (FRED, EDGAR, CoinGecko, etc.).
     #[error("HTTP request failed: {0}")]
     HttpError(#[from] reqwest::Error),
+
+    /// HTTP request error from `rquest` (the Chrome-fingerprinted
+    /// Yahoo data path). Separate variant because `rquest::Error` and
+    /// `reqwest::Error` are structurally distinct types — both flow
+    /// through the same `is_network_error()` / `category()` checks
+    /// further down.
+    #[error("HTTP request failed: {0}")]
+    RquestHttpError(#[from] rquest::Error),
 
     /// Failed to parse JSON response
     #[error("JSON parse error: {0}")]
@@ -152,6 +160,7 @@ impl FinanceError {
             FinanceError::Timeout { .. }
                 | FinanceError::RateLimited { .. }
                 | FinanceError::HttpError(_)
+                | FinanceError::RquestHttpError(_)
                 | FinanceError::AuthenticationFailed { .. }
                 | FinanceError::ServerError { .. }
         )

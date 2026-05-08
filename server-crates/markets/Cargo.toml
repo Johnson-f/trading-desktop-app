@@ -4,8 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# HTTP client (core dependency)
-reqwest = { version = "0.13", features = ["json", "cookies", "gzip", "brotli", "blocking", "query"] }
+# HTTP client (core dependency). `default-features = false` + explicit
+# `rustls-tls` excludes the `native-tls` default, which would pull
+# `openssl-sys` and trigger a linker conflict with `boring-sys2` (the
+# BoringSSL backend used by `rquest` below). With `boring-sys2`'s
+# `libssl.a`/`libcrypto.a` first in the linker search path, OpenSSL-only
+# symbols (`SSL_CTX_ctrl`, `SSL_read_ex`, ...) come up undefined.
+reqwest = { version = "0.13", default-features = false, features = ["json", "cookies", "gzip", "brotli", "blocking", "query", "rustls"] }
+
+# Chrome-fingerprinted HTTP client for the Yahoo data path. `rquest` is
+# a reqwest-shaped fork built on BoringSSL that mimics real browsers'
+# TLS Client Hello + HTTP/2 SETTINGS so Yahoo's bot detection can't
+# tell us apart from Chrome on a user's laptop. `rquest-util` ships the
+# `Emulation` enum (Chrome100..136, Firefox*, Safari*) used to pick a
+# target. Other data sources (FRED, EDGAR, CoinGecko, etc.) keep using
+# `reqwest` because they don't bot-detect.
+rquest = { version = "5", features = ["json", "cookies"] }
+rquest-util = { version = "2", features = ["emulation"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::StreamExt;
-use markets::streaming::{MarketHoursType, PriceStream, PriceUpdate, QuoteType};
+use markets::streaming::{PriceStream, PriceUpdate, QuoteType};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use super::protocol::BarPayload;
@@ -196,10 +196,26 @@ impl Coordinator {
     }
 
     async fn handle_tick(&mut self, tick: PriceUpdate) {
+        // Per-tick trace logging. Off by default; turn on with
+        //   RUST_LOG=zaned_server::service::tick_service::coordinator=debug
+        // to see the live tick stream during diagnosis.
+        tracing::debug!(
+            symbol = %tick.id,
+            price = tick.price,
+            quote_type = ?tick.quote_type,
+            market_hours = ?tick.market_hours,
+            ts_ms = tick.time,
+            "tick received",
+        );
+
+        // Only equities and ETFs map cleanly into our daily-bar model.
+        // No `market_hours` filter: pre-market, regular, post-market, and
+        // extended-hours ticks are all real prices users want to see.
+        // Yahoo's earlier `RegularMarket` gate dropped every off-hours
+        // tick — every single one before 9:30 ET and after 16:00 ET —
+        // and the chart appeared frozen until the boundary sweeper's
+        // 1-min finalize event nudged it forward.
         if !matches!(tick.quote_type, QuoteType::Equity | QuoteType::Etf) {
-            return;
-        }
-        if !matches!(tick.market_hours, MarketHoursType::RegularMarket) {
             return;
         }
 

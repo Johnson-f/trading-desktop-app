@@ -9,6 +9,7 @@ mod indicators;
 mod interaction;
 pub mod multi_charts;
 mod pane;
+mod range;
 mod range_markers;
 mod renderer;
 mod util;
@@ -20,6 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
 
 use camera::Camera;
+pub use range::Range;
 pub use candle::{CandleData, JsonCandle, Timeframe};
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
@@ -30,65 +32,6 @@ use indicators::{self as ind, IndicatorEvent, IndicatorManager, ParamValues};
 use interaction::InteractionState;
 use pane::SubPaneStack;
 use renderer::ChartCallback;
-
-/// Data window selection. Maps to a number of trailing candles shown in the
-/// chart's viewport. `Max` = show everything.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Range {
-    D1,
-    D5,
-    M1,
-    M3,
-    M6,
-    YTD,
-    Y1,
-    Y5,
-    Max,
-}
-
-impl Range {
-    pub const ALL: &'static [Range] = &[
-        Range::D1,
-        Range::D5,
-        Range::M1,
-        Range::M3,
-        Range::M6,
-        Range::YTD,
-        Range::Y1,
-        Range::Y5,
-        Range::Max,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Range::D1 => "1D",
-            Range::D5 => "5D",
-            Range::M1 => "1M",
-            Range::M3 => "3M",
-            Range::M6 => "6M",
-            Range::YTD => "YTD",
-            Range::Y1 => "1Y",
-            Range::Y5 => "5Y",
-            Range::Max => "MAX",
-        }
-    }
-
-    /// Approximate trailing-candle count assuming 1 candle = 1 trading day.
-    /// `Max` and `YTD` return `None` (handled by the caller).
-    pub fn trailing_candles(self) -> Option<usize> {
-        match self {
-            Range::D1 => Some(1),
-            Range::D5 => Some(5),
-            Range::M1 => Some(21),
-            Range::M3 => Some(63),
-            Range::M6 => Some(126),
-            Range::YTD => None,
-            Range::Y1 => Some(252),
-            Range::Y5 => Some(252 * 5),
-            Range::Max => None,
-        }
-    }
-}
 
 /// Single-letter label for Timeframe — used in the compact footer row.
 /// Apply theme-aware visuals INSIDE a ComboBox popup closure. The popup
@@ -789,7 +732,17 @@ impl ChartWidget {
         close: Option<f32>,
         volume: Option<f32>,
     ) -> bool {
-        let date = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+        // The server sends `ts` in inconsistent units across event types:
+        // `FinalizeEvent.candle.ts` and `SeedEvent.candle.ts` use unix
+        // SECONDS (the bar's bucket_start), while `DeltaEvent.ts` uses
+        // unix MILLISECONDS (the raw tick timestamp). Normalize: any
+        // value past the year-2286 threshold (10 billion seconds since
+        // 1970) is milliseconds and must be divided down. Without this,
+        // delta events parsed as far-future dates and got appended as
+        // ghost candles instead of updating today's bar — making the
+        // chart appear frozen between 1-minute boundary finalizes.
+        let ts_secs = if ts > 10_000_000_000 { ts / 1000 } else { ts };
+        let date = chrono::DateTime::<chrono::Utc>::from_timestamp(ts_secs, 0)
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
 
