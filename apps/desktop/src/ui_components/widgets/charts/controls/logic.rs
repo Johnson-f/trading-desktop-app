@@ -302,7 +302,6 @@ impl ChartToolbar {
                             ui.add_space(2.0);
                         }
                     }
-
                 });
             });
 
@@ -469,71 +468,72 @@ const MODAL_PRIMARY_BG: Color32 = Color32::from_rgb(58, 130, 246);
 const MODAL_PRIMARY_TEXT: Color32 = Color32::from_rgb(255, 255, 255);
 const MODAL_HELP_FG: Color32 = Color32::from_rgb(45, 145, 130);
 
-fn show_clear_drawings_modal(
-    ctx: &egui::Context,
-    open: &mut bool,
-    confirmed: &mut bool,
-) {
+fn show_clear_drawings_modal(ctx: &egui::Context, open: &mut bool, confirmed: &mut bool) {
     // Strip egui's default Modal frame (light stroke + shadow); we draw our
     // own dark frame inside.
     let modal = egui::Modal::new(egui::Id::new("clear_drawings_modal"))
         .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
-        ui.set_min_width(440.0);
-        egui::Frame::new()
-            .fill(MODAL_BG)
-            .stroke(Stroke::new(1.0, MODAL_BORDER))
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::same(20))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Question-mark badge.
-                    let (badge_rect, _) =
-                        ui.allocate_exact_size(Vec2::new(28.0, 28.0), egui::Sense::hover());
-                    ui.painter()
-                        .circle_stroke(badge_rect.center(), 13.0, Stroke::new(1.5, MODAL_HELP_FG));
-                    ui.painter().text(
-                        badge_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "?",
-                        egui::FontId::proportional(15.0),
-                        MODAL_HELP_FG,
-                    );
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new("Are you sure you want to delete all drawings in this chart?")
+            ui.set_min_width(440.0);
+            egui::Frame::new()
+                .fill(MODAL_BG)
+                .stroke(Stroke::new(1.0, MODAL_BORDER))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::same(20))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Question-mark badge.
+                        let (badge_rect, _) =
+                            ui.allocate_exact_size(Vec2::new(28.0, 28.0), egui::Sense::hover());
+                        ui.painter().circle_stroke(
+                            badge_rect.center(),
+                            13.0,
+                            Stroke::new(1.5, MODAL_HELP_FG),
+                        );
+                        ui.painter().text(
+                            badge_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "?",
+                            egui::FontId::proportional(15.0),
+                            MODAL_HELP_FG,
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(
+                                "Are you sure you want to delete all drawings in this chart?",
+                            )
                             .size(13.0)
                             .color(MODAL_TEXT),
-                    );
-                });
+                        );
+                    });
 
-                ui.add_space(18.0);
+                    ui.add_space(18.0);
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let primary = egui::Button::new(
-                        RichText::new("Delete").size(13.0).color(MODAL_PRIMARY_TEXT),
-                    )
-                    .fill(MODAL_PRIMARY_BG)
-                    .corner_radius(CornerRadius::same(6))
-                    .min_size(Vec2::new(96.0, 32.0));
-                    if ui.add(primary).clicked() {
-                        *confirmed = true;
-                        *open = false;
-                    }
-                    ui.add_space(8.0);
-                    let secondary = egui::Button::new(
-                        RichText::new("Cancel").size(13.0).color(MODAL_TEXT_MUTED),
-                    )
-                    .fill(Color32::TRANSPARENT)
-                    .stroke(Stroke::new(1.0, MODAL_BORDER))
-                    .corner_radius(CornerRadius::same(6))
-                    .min_size(Vec2::new(96.0, 32.0));
-                    if ui.add(secondary).clicked() {
-                        *open = false;
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let primary = egui::Button::new(
+                            RichText::new("Delete").size(13.0).color(MODAL_PRIMARY_TEXT),
+                        )
+                        .fill(MODAL_PRIMARY_BG)
+                        .corner_radius(CornerRadius::same(6))
+                        .min_size(Vec2::new(96.0, 32.0));
+                        if ui.add(primary).clicked() {
+                            *confirmed = true;
+                            *open = false;
+                        }
+                        ui.add_space(8.0);
+                        let secondary = egui::Button::new(
+                            RichText::new("Cancel").size(13.0).color(MODAL_TEXT_MUTED),
+                        )
+                        .fill(Color32::TRANSPARENT)
+                        .stroke(Stroke::new(1.0, MODAL_BORDER))
+                        .corner_radius(CornerRadius::same(6))
+                        .min_size(Vec2::new(96.0, 32.0));
+                        if ui.add(secondary).clicked() {
+                            *open = false;
+                        }
+                    });
                 });
-            });
-    });
+        });
     if modal.should_close() {
         *open = false;
     }

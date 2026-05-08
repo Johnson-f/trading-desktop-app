@@ -9,8 +9,14 @@ zaned-chart-core = { path = "../../desktop-crates/chart-core" }
 zaned-database = { path = "../../desktop-crates/database" }
 eframe = "0.34.1"
 egui = "0.34.1"
+# Image-loader extras: pulls in `ehttp` for HTTP fetching and the `image`
+# crate for PNG/JPEG decoding. Used by the `logo` module for stock logos
+# served from Parqet's CDN. `install_image_loaders` is called once at boot.
+egui_extras = { version = "0.34", features = ["http", "image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 egui-phosphor = "0.12"
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"
 wgpu = "29"
 egui-wgpu = "0.34"
 bytemuck = { version = "1", features = ["derive"] }

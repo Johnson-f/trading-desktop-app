@@ -70,8 +70,13 @@ pub(super) fn colors_from_kind_style(kind_style: &KindStyle) -> PositionColors {
 }
 
 pub(super) fn show_label_from_kind_style(kind_style: &KindStyle) -> bool {
-    matches!(kind_style, KindStyle::Position { show_label: true, .. })
-        || !matches!(kind_style, KindStyle::Position { .. })
+    matches!(
+        kind_style,
+        KindStyle::Position {
+            show_label: true,
+            ..
+        }
+    ) || !matches!(kind_style, KindStyle::Position { .. })
 }
 
 pub struct LongPosition;

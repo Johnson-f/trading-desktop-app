@@ -15,11 +15,13 @@
 //! [`transport::execute_query`].
 
 pub mod operations;
+pub mod scalars;
 pub mod subscriptions;
 pub mod transport;
 
 use thiserror::Error;
 
+pub use operations::historical::{BarUnit, BucketInput, HistoricalBar};
 pub use operations::symbols::Symbol;
 pub use subscriptions::ticks::{TickEvent, TicksResponse};
 

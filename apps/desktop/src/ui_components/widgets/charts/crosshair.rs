@@ -31,15 +31,14 @@ pub fn paint_crosshair(
     let cursor_x_pixel = cursor_pos.x - chart_rect.left();
     let candle_index_f = camera.x_offset + cursor_x_pixel as f64 / camera.x_scale;
     let candle_index_rounded = candle_index_f.round() as usize;
-    let snapped_candle: Option<(usize, f32)> = if !data.is_empty()
-        && candle_index_rounded < data.len()
-    {
-        let snapped_x_pixel =
-            ((candle_index_rounded as f64 - camera.x_offset) * camera.x_scale) as f32;
-        Some((candle_index_rounded, chart_rect.left() + snapped_x_pixel))
-    } else {
-        None
-    };
+    let snapped_candle: Option<(usize, f32)> =
+        if !data.is_empty() && candle_index_rounded < data.len() {
+            let snapped_x_pixel =
+                ((candle_index_rounded as f64 - camera.x_offset) * camera.x_scale) as f32;
+            Some((candle_index_rounded, chart_rect.left() + snapped_x_pixel))
+        } else {
+            None
+        };
     let (candle_index, snapped_x) = match snapped_candle {
         Some((idx, x)) => (Some(idx), x),
         None => (None, cursor_pos.x),
@@ -73,11 +72,8 @@ pub fn paint_crosshair(
         const PRICE_LABEL_RIGHT_PAD: f32 = 10.0;
         const BADGE_PAD_X: f32 = 6.0;
         let badge_height = 18.0_f32;
-        let text_galley = chart_painter.layout_no_wrap(
-            price_text.clone(),
-            font.clone(),
-            LABEL_TEXT,
-        );
+        let text_galley =
+            chart_painter.layout_no_wrap(price_text.clone(), font.clone(), LABEL_TEXT);
         let badge_width = (text_galley.size().x + BADGE_PAD_X * 2.0)
             .min(AXIS_WIDTH - PRICE_LABEL_RIGHT_PAD - 2.0);
         let badge_right = chart_rect.right() - PRICE_LABEL_RIGHT_PAD;

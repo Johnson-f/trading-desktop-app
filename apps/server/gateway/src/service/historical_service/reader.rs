@@ -22,7 +22,7 @@ pub struct Bar {
     pub high: i32,
     pub low: i32,
     pub close: i32,
-    pub volume: u32,
+    pub volume: u64,
 }
 
 #[derive(Clone)]
@@ -53,12 +53,19 @@ impl ClickhouseReader {
         limit: u32,
     ) -> Result<Vec<Bar>> {
         let sql = build_select_sql(&bucket);
+        // Bind timestamps as Unix-seconds integers, not chrono::DateTime.
+        // The clickhouse crate's default Serialize for DateTime<Utc>
+        // emits RFC3339 with sub-second precision (e.g. "...013982Z"),
+        // which the CH `DateTime` column type rejects with TYPE_MISMATCH.
+        // Integer seconds round-trip cleanly into `DateTime`.
+        let from_secs = from.timestamp() as u32;
+        let to_secs = to.timestamp() as u32;
         let mut rows = self
             .client
             .query(&sql)
             .bind(symbol)
-            .bind(from)
-            .bind(to)
+            .bind(from_secs)
+            .bind(to_secs)
             .bind(limit)
             .fetch_all::<Bar>()
             .await

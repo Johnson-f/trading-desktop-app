@@ -46,7 +46,10 @@ mod tests {
             issuer: "https://x.clerk.accounts.dev/".to_string(),
             client_id: "pk_test".to_string(),
         };
-        assert_eq!(cfg.authorize_url(), "https://x.clerk.accounts.dev/oauth/authorize");
+        assert_eq!(
+            cfg.authorize_url(),
+            "https://x.clerk.accounts.dev/oauth/authorize"
+        );
         assert_eq!(cfg.token_url(), "https://x.clerk.accounts.dev/oauth/token");
     }
 
@@ -56,6 +59,9 @@ mod tests {
             issuer: "https://x.clerk.accounts.dev".to_string(),
             client_id: "pk_test".to_string(),
         };
-        assert_eq!(cfg.authorize_url(), "https://x.clerk.accounts.dev/oauth/authorize");
+        assert_eq!(
+            cfg.authorize_url(),
+            "https://x.clerk.accounts.dev/oauth/authorize"
+        );
     }
 }

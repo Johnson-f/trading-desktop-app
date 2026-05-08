@@ -32,8 +32,12 @@ pub struct BucketInput {
 
 /// One aggregated OHLCV bar. Prices are sent as Int cents (Decimal32(2)
 /// in storage); divide by 100 to render dollars.
+///
+/// Named `HistoricalBar` rather than `Bar` because the live ticks
+/// subscription already exports a `Bar` type (with abbreviated fields)
+/// — async-graphql panics on duplicate type names at schema build.
 #[derive(Debug, Clone, SimpleObject)]
-pub struct Bar {
+pub struct HistoricalBar {
     pub ts: DateTime<Utc>,
     pub open: i32,
     pub high: i32,

@@ -1,3 +1,4 @@
+mod api;
 mod auth;
 mod components;
 mod theme;
@@ -5,8 +6,8 @@ mod ui_components;
 
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
-use ui_components::widgets::charts::{CandleData, ChartWidget, JsonCandle};
 use ui_components::widgets::charts::multi_charts::{self, MultiChartWidget};
+use ui_components::widgets::charts::{CandleData, ChartWidget};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -95,6 +96,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         runtime_handle.clone(),
     );
 
+    // Wire the candle loader so symbol changes can fetch from the gateway.
+    api::candle_loader::init(runtime_handle.clone(), auth_state.clone());
+    api::symbol_search::init(runtime_handle.clone(), auth_state.clone());
+    api::tick_stream::init(runtime_handle.clone(), auth_state.clone());
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_titlebar_shown(false)
@@ -128,6 +134,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .insert(0, "JetBrainsMono".to_owned());
 
             cc.egui_ctx.set_fonts(fonts);
+
+            // Wire image loaders so `egui::Image::from_uri(...)` can fetch
+            // remote PNGs (Parqet stock logos, etc.) — see `crate::api::logo`.
+            // Without this call, image URIs are inert and render as nothing.
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
             let mut visuals = egui::Visuals::dark();
             let bg = egui::Color32::from_rgb(0, 0, 0);
             visuals.panel_fill = bg;
@@ -175,23 +187,19 @@ struct MyApp {
     /// dropping their work.
     pending_collapse_confirm: bool,
     auth_state: auth::AuthStateHandle,
+    /// Flips on the first frame we see `Authenticated`. Used to defer the
+    /// boot symbol's data fetch until the bearer is available — calling
+    /// `set_symbol` earlier would dispatch an unauth'd request that the
+    /// gateway would reject.
+    boot_symbol_loaded: bool,
 }
 
 impl MyApp {
     fn new(auth_state: auth::AuthStateHandle) -> Self {
-        let mut chart = None;
-        let json_str = std::fs::read_to_string("AAPL.json").unwrap_or_default();
-        if !json_str.is_empty() {
-            if let Ok(candles) = serde_json::from_str::<Vec<JsonCandle>>(&json_str) {
-                if !candles.is_empty() {
-                    let data = CandleData::from_json(&candles);
-                    let mut widget = ChartWidget::new(data);
-                    // Bind the boot symbol so persisted drawings load on launch.
-                    widget.set_symbol("AAPL".to_string());
-                    chart = Some(ChartView::Single(widget));
-                }
-            }
-        }
+        // Start with an empty chart; the boot symbol's candles are fetched
+        // from the gateway on the first authenticated frame (see `ui()`).
+        let widget = ChartWidget::new(CandleData::from_json(&[]));
+        let chart = Some(ChartView::Single(widget));
 
         Self {
             top_header: TopHeader::default(),
@@ -201,6 +209,7 @@ impl MyApp {
             chart,
             pending_collapse_confirm: false,
             auth_state,
+            boot_symbol_loaded: false,
         }
     }
 }
@@ -210,6 +219,15 @@ impl eframe::App for MyApp {
         // Route based on auth state before rendering the main UI.
         match self.auth_state.blocking_snapshot() {
             crate::auth::AuthState::Authenticated { .. } => {
+                // First authenticated frame — bind the boot symbol so the
+                // chart fetches AAPL's history (and persisted drawings) now
+                // that we have a bearer.
+                if !self.boot_symbol_loaded {
+                    if let Some(ChartView::Single(c)) = self.chart.as_mut() {
+                        c.set_symbol("AAPL".to_string());
+                    }
+                    self.boot_symbol_loaded = true;
+                }
                 // Fall through to the main UI below.
             }
             crate::auth::AuthState::Loading => {
@@ -247,7 +265,24 @@ impl eframe::App for MyApp {
             }
         }
 
-        self.top_header.show(ui);
+        if let Some(picked) = self.top_header.show(ui) {
+            // The user selected a symbol from the search dropdown.
+            // Forward it to the active single chart, which kicks off the
+            // async candle load for the new symbol. The Multi layout's
+            // `set_symbol` still uses the synchronous data-injection
+            // signature; wiring it through the async loader is its own
+            // change so we ignore picks while in Multi mode for now.
+            match self.chart.as_mut() {
+                Some(ChartView::Single(c)) => c.set_symbol(picked),
+                Some(ChartView::Multi(_)) => {
+                    tracing::info!(
+                        "symbol picked while in multi-chart layout; ignoring \
+                         until multi_charts is wired through the async loader",
+                    );
+                }
+                None => {}
+            }
+        }
 
         let bg = egui::Color32::from_rgb(0, 0, 0);
 

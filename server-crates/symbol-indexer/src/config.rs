@@ -13,10 +13,9 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let typesense_url = std::env::var("TYPESENSE_URL")
-            .context("TYPESENSE_URL is required")?;
-        let typesense_api_key = std::env::var("TYPESENSE_API_KEY")
-            .context("TYPESENSE_API_KEY is required")?;
+        let typesense_url = std::env::var("TYPESENSE_URL").context("TYPESENSE_URL is required")?;
+        let typesense_api_key =
+            std::env::var("TYPESENSE_API_KEY").context("TYPESENSE_API_KEY is required")?;
         let redis_url = std::env::var("REDIS_URL").context("REDIS_URL is required")?;
         let schedule_hour_utc = std::env::var("SYMBOL_SERVICE_SCHEDULE_HOUR_UTC")
             .ok()
@@ -27,8 +26,8 @@ impl Config {
         if schedule_hour_utc > 23 {
             anyhow::bail!("SYMBOL_SERVICE_SCHEDULE_HOUR_UTC must be 0..=23");
         }
-        let collection = std::env::var("SYMBOL_SERVICE_COLLECTION")
-            .unwrap_or_else(|_| "tickers".to_string());
+        let collection =
+            std::env::var("SYMBOL_SERVICE_COLLECTION").unwrap_or_else(|_| "tickers".to_string());
         Ok(Self {
             typesense_url,
             typesense_api_key,
@@ -49,7 +48,10 @@ mod tests {
         use std::sync::Mutex;
         static SERIAL_ENV: Mutex<()> = Mutex::new(());
         let _guard = SERIAL_ENV.lock().unwrap();
-        let prev: Vec<_> = vars.iter().map(|(k, _)| (*k, std::env::var(k).ok())).collect();
+        let prev: Vec<_> = vars
+            .iter()
+            .map(|(k, _)| (*k, std::env::var(k).ok()))
+            .collect();
         for (k, v) in vars {
             match v {
                 Some(val) => unsafe { std::env::set_var(k, val) },

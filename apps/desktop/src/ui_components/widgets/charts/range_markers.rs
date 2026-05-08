@@ -56,7 +56,13 @@ pub fn paint(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData
         } else {
             (Pos2::new(x_h, y_h + 4.0), Align2::CENTER_TOP)
         };
-        painter.text(pos, align, format!("H {:.2}", max_high), font.clone(), LABEL_COLOR);
+        painter.text(
+            pos,
+            align,
+            format!("H {:.2}", max_high),
+            font.clone(),
+            LABEL_COLOR,
+        );
     }
 
     if chart_rect.x_range().contains(x_l) && chart_rect.y_range().contains(y_l) {

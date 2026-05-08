@@ -1,5 +1,6 @@
-use eframe::egui::{self, Color32, CornerRadius, DragValue, FontId, Pos2, Rect, RichText, Sense,
-                   Stroke, Vec2};
+use eframe::egui::{
+    self, Color32, CornerRadius, DragValue, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2,
+};
 
 use super::super::super::CandleData;
 use super::super::super::drawings::{
@@ -126,10 +127,8 @@ impl DrawingSettingsModal {
                 ui.style_mut().animation_time = 0.15;
 
                 // ── Header band ──────────────────────────────────────────────
-                let (header_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(ui.available_width(), HEADER_H),
-                    Sense::hover(),
-                );
+                let (header_rect, _) = ui
+                    .allocate_exact_size(Vec2::new(ui.available_width(), HEADER_H), Sense::hover());
 
                 // macOS close dot (red)
                 let close_center = Pos2::new(header_rect.left() + H_PAD, header_rect.center().y);
@@ -172,10 +171,8 @@ impl DrawingSettingsModal {
                     "Price"
                 };
 
-                let (tab_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(ui.available_width(), TAB_H),
-                    Sense::hover(),
-                );
+                let (tab_rect, _) =
+                    ui.allocate_exact_size(Vec2::new(ui.available_width(), TAB_H), Sense::hover());
 
                 let painter = ui.painter();
                 let tabs = [(Tab::Style, "Style"), (Tab::Position, position_tab_label)];
@@ -184,10 +181,8 @@ impl DrawingSettingsModal {
 
                 for (tab, label) in tabs {
                     let is_active = self.active_tab == tab;
-                    let t_rect = Rect::from_min_size(
-                        Pos2::new(tx, tab_rect.top()),
-                        Vec2::new(tab_w, TAB_H),
-                    );
+                    let t_rect =
+                        Rect::from_min_size(Pos2::new(tx, tab_rect.top()), Vec2::new(tab_w, TAB_H));
                     let tab_id = ui.id().with(("dtab", label));
                     let tab_resp = ui.interact(t_rect, tab_id, Sense::click());
 
@@ -201,17 +196,14 @@ impl DrawingSettingsModal {
                         let base = theme::TEXT_MUTED;
                         Color32::from_rgb(
                             base.r()
-                                + ((theme::TEXT_PRIMARY.r() - base.r()) as f32
-                                    * hover_t
-                                    * 0.6) as u8,
+                                + ((theme::TEXT_PRIMARY.r() - base.r()) as f32 * hover_t * 0.6)
+                                    as u8,
                             base.g()
-                                + ((theme::TEXT_PRIMARY.g() - base.g()) as f32
-                                    * hover_t
-                                    * 0.6) as u8,
+                                + ((theme::TEXT_PRIMARY.g() - base.g()) as f32 * hover_t * 0.6)
+                                    as u8,
                             base.b()
-                                + ((theme::TEXT_PRIMARY.b() - base.b()) as f32
-                                    * hover_t
-                                    * 0.6) as u8,
+                                + ((theme::TEXT_PRIMARY.b() - base.b()) as f32 * hover_t * 0.6)
+                                    as u8,
                         )
                     };
 
@@ -264,10 +256,7 @@ impl DrawingSettingsModal {
                         .inner_margin(inner_margin)
                         .outer_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
-                            ui.set_min_size(Vec2::new(
-                                ui.available_width(),
-                                content_height - 24.0,
-                            ));
+                            ui.set_min_size(Vec2::new(ui.available_width(), content_height - 24.0));
                             match self.active_tab {
                                 Tab::Style => {
                                     changed |= self.draw_style_tab(ui, extend_caps);
@@ -288,10 +277,8 @@ impl DrawingSettingsModal {
                     Stroke::new(1.0, theme::BORDER),
                 );
 
-                let (action_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(ui.available_width(), ACTION_H),
-                    Sense::hover(),
-                );
+                let (action_rect, _) = ui
+                    .allocate_exact_size(Vec2::new(ui.available_width(), ACTION_H), Sense::hover());
 
                 // Reset to Defaults — ghost outlined button (left)
                 let reset_id = ui.id().with("reset_btn");
@@ -397,11 +384,7 @@ impl DrawingSettingsModal {
         let mut changed = false;
 
         // ── Color ─────────────────────────────────────────────────────────────
-        ui.label(
-            RichText::new("Color")
-                .color(theme::TEXT_MUTED)
-                .size(11.0),
-        );
+        ui.label(RichText::new("Color").color(theme::TEXT_MUTED).size(11.0));
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(6.0);
@@ -448,11 +431,7 @@ impl DrawingSettingsModal {
 
         // ── Width ─────────────────────────────────────────────────────────────
         ui.add_space(12.0);
-        ui.label(
-            RichText::new("Width")
-                .color(theme::TEXT_MUTED)
-                .size(11.0),
-        );
+        ui.label(RichText::new("Width").color(theme::TEXT_MUTED).size(11.0));
         ui.add_space(8.0);
         ui.scope(|ui| {
             apply_field_visuals(ui);
@@ -466,11 +445,7 @@ impl DrawingSettingsModal {
 
         // ── Style (Solid / Dashed / Dotted) ───────────────────────────────────
         ui.add_space(12.0);
-        ui.label(
-            RichText::new("Style")
-                .color(theme::TEXT_MUTED)
-                .size(11.0),
-        );
+        ui.label(RichText::new("Style").color(theme::TEXT_MUTED).size(11.0));
         ui.add_space(8.0);
 
         // Allocate a horizontal band for the three frameless tab-like buttons
@@ -488,8 +463,10 @@ impl DrawingSettingsModal {
             (DashStyle::Dotted, "Dotted"),
         ] {
             let is_active = self.draft_style.dash == d;
-            let btn_r =
-                Rect::from_min_size(Pos2::new(bx, band_rect.top()), Vec2::new(btn_w, style_band_h));
+            let btn_r = Rect::from_min_size(
+                Pos2::new(bx, band_rect.top()),
+                Vec2::new(btn_w, style_band_h),
+            );
             let btn_id = ui.id().with(("dstyle", label));
             let btn_resp = ui.interact(btn_r, btn_id, Sense::click());
 
@@ -501,12 +478,9 @@ impl DrawingSettingsModal {
             } else {
                 let base = theme::TEXT_MUTED;
                 Color32::from_rgb(
-                    base.r()
-                        + ((theme::TEXT_PRIMARY.r() - base.r()) as f32 * hover_t * 0.6) as u8,
-                    base.g()
-                        + ((theme::TEXT_PRIMARY.g() - base.g()) as f32 * hover_t * 0.6) as u8,
-                    base.b()
-                        + ((theme::TEXT_PRIMARY.b() - base.b()) as f32 * hover_t * 0.6) as u8,
+                    base.r() + ((theme::TEXT_PRIMARY.r() - base.r()) as f32 * hover_t * 0.6) as u8,
+                    base.g() + ((theme::TEXT_PRIMARY.g() - base.g()) as f32 * hover_t * 0.6) as u8,
+                    base.b() + ((theme::TEXT_PRIMARY.b() - base.b()) as f32 * hover_t * 0.6) as u8,
                 )
             };
 
@@ -539,11 +513,7 @@ impl DrawingSettingsModal {
 
         // ── Opacity ───────────────────────────────────────────────────────────
         ui.add_space(12.0);
-        ui.label(
-            RichText::new("Opacity")
-                .color(theme::TEXT_MUTED)
-                .size(11.0),
-        );
+        ui.label(RichText::new("Opacity").color(theme::TEXT_MUTED).size(11.0));
         ui.add_space(8.0);
         ui.scope(|ui| {
             apply_field_visuals(ui);
@@ -558,11 +528,7 @@ impl DrawingSettingsModal {
         // ── Extend ────────────────────────────────────────────────────────────
         if extend_caps.left || extend_caps.right {
             ui.add_space(12.0);
-            ui.label(
-                RichText::new("Extend")
-                    .color(theme::TEXT_MUTED)
-                    .size(11.0),
-            );
+            ui.label(RichText::new("Extend").color(theme::TEXT_MUTED).size(11.0));
             ui.add_space(8.0);
             if extend_caps.left
                 && ui
@@ -596,11 +562,7 @@ impl DrawingSettingsModal {
                 fill_alpha,
             } => {
                 ui.add_space(12.0);
-                ui.label(
-                    RichText::new("Fill")
-                        .color(theme::TEXT_MUTED)
-                        .size(11.0),
-                );
+                ui.label(RichText::new("Fill").color(theme::TEXT_MUTED).size(11.0));
                 ui.add_space(8.0);
                 if ui.checkbox(fill_enabled, "Enable fill").changed() {
                     changed = true;
@@ -627,7 +589,10 @@ impl DrawingSettingsModal {
                         .size(11.0),
                 );
                 ui.add_space(8.0);
-                if ui.checkbox(fill_enabled, "Shade between outer tines").changed() {
+                if ui
+                    .checkbox(fill_enabled, "Shade between outer tines")
+                    .changed()
+                {
                     changed = true;
                 }
                 if *fill_enabled {
@@ -646,21 +611,14 @@ impl DrawingSettingsModal {
                 show_labels,
             } => {
                 ui.add_space(12.0);
-                ui.label(
-                    RichText::new("Levels")
-                        .color(theme::TEXT_MUTED)
-                        .size(11.0),
-                );
+                ui.label(RichText::new("Levels").color(theme::TEXT_MUTED).size(11.0));
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     const RATIOS: [f32; FIB_RATIO_COUNT] =
                         [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
                     for (i, r) in RATIOS.iter().enumerate() {
                         let mut on = (*ratios_mask >> i) & 1 == 1;
-                        if ui
-                            .checkbox(&mut on, format!("{:.3}", r))
-                            .changed()
-                        {
+                        if ui.checkbox(&mut on, format!("{:.3}", r)).changed() {
                             let bit = 1u8 << i;
                             if on {
                                 *ratios_mask |= bit;
@@ -689,31 +647,25 @@ impl DrawingSettingsModal {
                         .size(11.0),
                 );
                 ui.add_space(8.0);
-                let row = |ui: &mut egui::Ui,
-                               label: &str,
-                               color: &mut zaned_chart_core::Rgba|
-                 -> bool {
-                    let mut inner_changed = false;
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(label)
-                                .color(theme::TEXT_PRIMARY)
-                                .size(12.0),
-                        );
-                        let mut c = egui_color(*color);
-                        if egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            &mut c,
-                            egui::color_picker::Alpha::Opaque,
-                        )
-                        .changed()
-                        {
-                            *color = core_color(c);
-                            inner_changed = true;
-                        }
-                    });
-                    inner_changed
-                };
+                let row =
+                    |ui: &mut egui::Ui, label: &str, color: &mut zaned_chart_core::Rgba| -> bool {
+                        let mut inner_changed = false;
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(label).color(theme::TEXT_PRIMARY).size(12.0));
+                            let mut c = egui_color(*color);
+                            if egui::color_picker::color_edit_button_srgba(
+                                ui,
+                                &mut c,
+                                egui::color_picker::Alpha::Opaque,
+                            )
+                            .changed()
+                            {
+                                *color = core_color(c);
+                                inner_changed = true;
+                            }
+                        });
+                        inner_changed
+                    };
                 changed |= row(ui, "Profit", profit_color);
                 changed |= row(ui, "Loss", loss_color);
                 changed |= row(ui, "Entry", entry_color);
@@ -724,11 +676,7 @@ impl DrawingSettingsModal {
             }
             KindStyle::LabeledRect { show_label } => {
                 ui.add_space(12.0);
-                ui.label(
-                    RichText::new("Label")
-                        .color(theme::TEXT_MUTED)
-                        .size(11.0),
-                );
+                ui.label(RichText::new("Label").color(theme::TEXT_MUTED).size(11.0));
                 ui.add_space(8.0);
                 if ui.checkbox(show_label, "Show measurement label").changed() {
                     changed = true;

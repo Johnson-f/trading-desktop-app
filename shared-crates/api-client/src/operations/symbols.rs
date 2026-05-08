@@ -28,7 +28,10 @@ impl ApiClient {
     ) -> Result<Vec<Symbol>, ApiError> {
         let data = execute_query::<SearchSymbolsQuery>(
             self,
-            search_symbols_query::Variables { q: q.into(), limit: limit.map(|n| n as i64) },
+            search_symbols_query::Variables {
+                q: q.into(),
+                limit: limit.map(|n| n as i64),
+            },
         )
         .await?;
         Ok(data.search_symbols)

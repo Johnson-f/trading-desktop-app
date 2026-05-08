@@ -185,6 +185,29 @@ pub struct ChartWidget {
     /// In-flight async load triggered by `set_symbol`. Polled each frame; on
     /// completion the result replaces `drawings.committed`.
     pending_drawings_load: Option<tokio::sync::oneshot::Receiver<Vec<drawings::CommittedDrawing>>>,
+    /// In-flight historical-bars fetch triggered by `set_symbol`. Polled
+    /// each frame; on success the result feeds `set_data`.
+    pending_candles_load: Option<tokio::sync::oneshot::Receiver<Result<CandleData, String>>>,
+    /// In-flight backfill fetch for older bars (triggered when the user
+    /// scrolls past the leftmost loaded candle). Polled each frame; on
+    /// success the result is prepended to `raw_data` and the camera
+    /// shifts so the user's view doesn't jump. None when no fetch is in
+    /// flight, which is also the gate against firing duplicate requests.
+    pending_older_candles_load: Option<tokio::sync::oneshot::Receiver<Result<CandleData, String>>>,
+    /// Latched true when a backfill fetch returns an empty `CandleData`,
+    /// signalling Yahoo has no older history for this symbol. Stops us
+    /// from firing the same exhausting request every frame. Reset on
+    /// `set_symbol` (the next symbol may have deeper history).
+    older_history_exhausted: bool,
+    /// UTC midnight of the earliest bar currently loaded — anchors the
+    /// next backfill request. Updated on every `set_data` and merge.
+    /// `None` until the first data lands.
+    earliest_loaded_ts: Option<chrono::DateTime<chrono::Utc>>,
+    /// Live-tick subscription receiver for the active symbol. Created by
+    /// `set_symbol`, drained each frame in `poll_pending_ticks`. Drop
+    /// closes the WS — `set_symbol` overwrites with `None` first to
+    /// release the old subscription before opening the new one.
+    pending_ticks: Option<tokio::sync::mpsc::UnboundedReceiver<zaned_api_client::TickEvent>>,
     /// Last instant we kicked off an async save. Used to debounce: we wait
     /// `DRAWINGS_SAVE_DEBOUNCE` after the last mutation before saving so a
     /// burst of edits (drag-resizing a trendline) coalesces into one write.
@@ -203,6 +226,31 @@ pub struct ChartWidget {
 
 const DRAWINGS_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// Trigger a backfill fetch when the camera's `x_offset` (index of the
+/// leftmost visible candle) drops below this many bars. With a 1,250-bar
+/// chunk per fetch, 100 bars of buffer is enough that the user almost
+/// never sees empty space at the left edge: by the time they pan that
+/// far, the next chunk has typically landed.
+const OLDER_LOAD_THRESHOLD_BARS: f64 = 100.0;
+
+/// Parse a `YYYY-MM-DD` date string (the format
+/// `candle_loader::bars_to_candle_data` produces) into a UTC midnight
+/// `DateTime`. Used to anchor the next backfill fetch at the earliest
+/// loaded bar. `None` for any input that isn't a 10-char ISO date prefix.
+fn parse_date_to_utc_midnight(s: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
+    let s = s?;
+    let date = chrono::NaiveDate::parse_from_str(s.get(..10)?, "%Y-%m-%d").ok()?;
+    Some(date.and_hms_opt(0, 0, 0)?.and_utc())
+}
+
+/// Convert integer cents (the wire format from the gateway's GraphQL
+/// `Int` price fields) to f32 dollars. Server-side prices are
+/// `Decimal32(2)` in ClickHouse, decoded as `i32` cents on the way out
+/// and widened to `i64` by graphql_client's default `Int` mapping.
+fn cents_to_dollars(cents: i64) -> f32 {
+    cents as f32 / 100.0
+}
+
 /// Mutations originating from this `ChartWidget` since the last drain.
 /// Consumed by `MultiChartWidget` to mirror changes onto sibling panes.
 pub struct ChangeEvents {
@@ -220,6 +268,8 @@ impl ChartWidget {
         if let Some(def) = ind::get("volume") {
             manager.add(def.id, def.params.defaults());
         }
+
+        let earliest_loaded_ts = parse_date_to_utc_midnight(data.dates.first().map(|s| s.as_str()));
 
         Self {
             raw_data: data.clone(),
@@ -242,6 +292,11 @@ impl ChartWidget {
             suppress_toolbar: false,
             symbol: None,
             pending_drawings_load: None,
+            pending_candles_load: None,
+            pending_older_candles_load: None,
+            older_history_exhausted: false,
+            earliest_loaded_ts,
+            pending_ticks: None,
             drawings_dirty_since: None,
             drawings_hidden: false,
             indicator_legend_hidden: false,
@@ -266,9 +321,11 @@ impl ChartWidget {
         self.drawings.remap_to_data(&self.data);
         // Reset zoom/pan to fit the aggregated series — otherwise the prior
         // x_offset/x_scale (sized for daily candles) lands mid-data at a
-        // wildly-wrong position after aggregation.
+        // wildly-wrong position after aggregation. Use the same default
+        // as `Camera::default()` so the candle width is consistent across
+        // timeframes.
         let mut camera = self.camera.lock();
-        camera.x_scale = 6.0;
+        camera.x_scale = 16.0;
         camera.fit_to_data(&self.data);
     }
 
@@ -279,6 +336,11 @@ impl ChartWidget {
     /// remap path. Camera is refit so the new data shows cleanly.
     pub fn set_data(&mut self, new_raw: CandleData) {
         self.pending_symbol_change = Some(new_raw.clone());
+        self.earliest_loaded_ts =
+            parse_date_to_utc_midnight(new_raw.dates.first().map(|s| s.as_str()));
+        // New base data may have older history available — reset the
+        // exhausted flag so backfill can re-engage.
+        self.older_history_exhausted = false;
         self.raw_data = Arc::new(new_raw);
         self.data = Arc::new(self.raw_data.aggregated(self.timeframe));
         self.manager.invalidate_cache();
@@ -291,6 +353,10 @@ impl ChartWidget {
         // Per-frame lifecycle: pull in any completed async load, then schedule
         // a save if drawings are dirty and the debounce window has elapsed.
         self.poll_pending_drawings_load();
+        self.poll_pending_candles_load();
+        self.poll_pending_older_candles_load();
+        self.maybe_load_older_candles();
+        self.poll_pending_ticks();
         self.flush_dirty_drawings();
 
         if !self.suppress_toolbar {
@@ -431,9 +497,20 @@ impl ChartWidget {
         self.symbol = Some(symbol.clone());
         self.drawings.replace_committed(Vec::new());
         self.drawings_hidden = false;
-        // Kick off async load — `poll_pending_drawings_load` swaps the result
-        // into `drawings.committed` once the future resolves.
-        self.pending_drawings_load = Some(drawings::persistence::load_async(symbol));
+        // Kick off async loads — the per-frame poll helpers swap each
+        // result in once its future resolves.
+        self.pending_drawings_load = Some(drawings::persistence::load_async(symbol.clone()));
+        self.pending_candles_load = Some(crate::api::candle_loader::load_async(symbol.clone()));
+        // New symbol → reset backfill state. The previous symbol's
+        // in-flight request would land into the wrong data; the
+        // exhausted flag is also per-symbol.
+        self.pending_older_candles_load = None;
+        self.older_history_exhausted = false;
+        // Live ticks: drop the old receiver first (closes the previous
+        // WebSocket on the spawned task's next send) before opening a
+        // new subscription for `symbol`.
+        self.pending_ticks = None;
+        self.pending_ticks = Some(crate::api::tick_stream::subscribe(symbol));
     }
 
     /// Wipe every committed drawing on this chart (in-memory + DB).
@@ -487,6 +564,286 @@ impl ChartWidget {
                 // Sender dropped without sending — treat as empty.
                 self.pending_drawings_load = None;
             }
+        }
+    }
+
+    /// Drain a completed async candles load. On success, feed the new
+    /// data through `set_data` so camera + indicators + drawing remap
+    /// run consistently. On error, log and leave the chart's existing
+    /// data alone.
+    fn poll_pending_candles_load(&mut self) {
+        let Some(rx) = self.pending_candles_load.as_mut() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(data)) => {
+                self.set_data(data);
+                self.pending_candles_load = None;
+            }
+            Ok(Err(msg)) => {
+                tracing::warn!(error = %msg, "candle load failed");
+                self.pending_candles_load = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                // Still loading; check again next frame.
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                self.pending_candles_load = None;
+            }
+        }
+    }
+
+    /// If the user has scrolled within `OLDER_LOAD_THRESHOLD_BARS` of
+    /// the leftmost loaded bar (camera index 0), kick off a backfill
+    /// fetch. Gated on no-fetch-already-in-flight, no-history-exhausted,
+    /// and the initial fetch having landed (we need an `earliest_loaded_ts`).
+    fn maybe_load_older_candles(&mut self) {
+        if self.pending_older_candles_load.is_some() || self.older_history_exhausted {
+            return;
+        }
+        if self.pending_candles_load.is_some() {
+            // Initial fetch hasn't landed yet — don't race it.
+            return;
+        }
+        let Some(symbol) = self.symbol.clone() else {
+            return;
+        };
+        let Some(before) = self.earliest_loaded_ts else {
+            return;
+        };
+        let camera = self.camera.lock();
+        if camera.x_offset > OLDER_LOAD_THRESHOLD_BARS {
+            return;
+        }
+        drop(camera);
+        self.pending_older_candles_load =
+            Some(crate::api::candle_loader::load_older_async(symbol, before));
+    }
+
+    /// Drain a completed backfill fetch. On a non-empty result, prepend
+    /// the older bars to `raw_data`, re-index, and shift the camera so
+    /// the user's view doesn't jump. An empty result latches
+    /// `older_history_exhausted` so we don't keep poking the server.
+    fn poll_pending_older_candles_load(&mut self) {
+        let Some(rx) = self.pending_older_candles_load.as_mut() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(older)) => {
+                self.pending_older_candles_load = None;
+                if older.instances.is_empty() {
+                    self.older_history_exhausted = true;
+                    return;
+                }
+                self.prepend_older_bars(older);
+            }
+            Ok(Err(msg)) => {
+                tracing::warn!(error = %msg, "older candles load failed");
+                self.pending_older_candles_load = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                // Still loading; check again next frame.
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                self.pending_older_candles_load = None;
+            }
+        }
+    }
+
+    /// Merge a chunk of older bars into `raw_data` and shift the camera
+    /// by the chunk's length so the user's currently-visible bars stay
+    /// pinned. Re-runs aggregation, invalidates indicator caches, and
+    /// remaps drawings against the extended series. Mirrors
+    /// `pending_symbol_change` like `set_data` so multi-chart sync sees
+    /// the new base.
+    fn prepend_older_bars(&mut self, older: CandleData) {
+        let added = older.instances.len();
+        if added == 0 {
+            return;
+        }
+
+        let mut instances = Vec::with_capacity(added + self.raw_data.instances.len());
+        let mut dates = Vec::with_capacity(added + self.raw_data.dates.len());
+        instances.extend(older.instances.iter().copied());
+        instances.extend(self.raw_data.instances.iter().copied());
+        dates.extend(older.dates.iter().cloned());
+        dates.extend(self.raw_data.dates.iter().cloned());
+        for (i, inst) in instances.iter_mut().enumerate() {
+            inst.index = i as f32;
+        }
+        let merged = CandleData { instances, dates };
+
+        // Pin the user's view: their world-position is at
+        // `camera.x_offset` (in index units of the OLD series); after
+        // prepending `added` bars every old bar's index gains `added`,
+        // so the camera must too for the visible window to stay still.
+        {
+            let mut camera = self.camera.lock();
+            camera.x_offset += added as f64;
+        }
+
+        self.earliest_loaded_ts =
+            parse_date_to_utc_midnight(merged.dates.first().map(|s| s.as_str()));
+        self.pending_symbol_change = Some(merged.clone());
+        self.raw_data = Arc::new(merged);
+        self.data = Arc::new(self.raw_data.aggregated(self.timeframe));
+        self.manager.invalidate_cache();
+        self.drawings.remap_to_data(&self.data);
+    }
+
+    /// Drain every queued tick event for the active symbol, applying
+    /// each one to today's bar in `raw_data`. Re-aggregates + invalidates
+    /// indicator caches once at the end so a burst of deltas only pays
+    /// the recompute cost once per frame.
+    fn poll_pending_ticks(&mut self) {
+        // Drain into a local Vec first so the borrow on `pending_ticks`
+        // is released before we re-borrow `self` for `apply_tick_event`.
+        let events: Vec<_> = match self.pending_ticks.as_mut() {
+            Some(rx) => std::iter::from_fn(|| rx.try_recv().ok()).collect(),
+            None => return,
+        };
+        let mut applied = false;
+        for event in events {
+            if self.apply_tick_event(event) {
+                applied = true;
+            }
+        }
+        if applied {
+            self.data = Arc::new(self.raw_data.aggregated(self.timeframe));
+            self.manager.invalidate_cache();
+        }
+    }
+
+    /// Route one tick event to today's bar. Returns `true` if anything
+    /// changed.
+    ///
+    /// Symbol mismatch (e.g. a buffered event from the previous
+    /// subscription arriving after `set_symbol`) is silently dropped.
+    /// `TodayEvent` is ignored — for daily charts the running deltas
+    /// already update us correctly; the catch-up replay is only useful
+    /// for sub-day timeframes that we don't render yet.
+    fn apply_tick_event(&mut self, event: zaned_api_client::TickEvent) -> bool {
+        use zaned_api_client::TickEvent;
+
+        let event_symbol = match &event {
+            TickEvent::SeedEvent(e) => &e.symbol,
+            TickEvent::TodayEvent(e) => &e.symbol,
+            TickEvent::DeltaEvent(e) => &e.symbol,
+            TickEvent::FinalizeEvent(e) => &e.symbol,
+        };
+        if let Some(active) = self.symbol.as_deref() {
+            if active != event_symbol {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        match event {
+            TickEvent::DeltaEvent(d) => self.upsert_today_bar(
+                d.ts,
+                None,
+                d.h.map(cents_to_dollars),
+                d.l.map(cents_to_dollars),
+                Some(cents_to_dollars(d.c)),
+                d.v.map(|v| v as f32),
+            ),
+            TickEvent::SeedEvent(seed) => {
+                let Some(c) = seed.candle else { return false };
+                self.upsert_today_bar(
+                    c.ts,
+                    Some(cents_to_dollars(c.o)),
+                    Some(cents_to_dollars(c.h)),
+                    Some(cents_to_dollars(c.l)),
+                    Some(cents_to_dollars(c.c)),
+                    Some(c.v as f32),
+                )
+            }
+            TickEvent::FinalizeEvent(fin) => {
+                let c = fin.candle;
+                self.upsert_today_bar(
+                    c.ts,
+                    Some(cents_to_dollars(c.o)),
+                    Some(cents_to_dollars(c.h)),
+                    Some(cents_to_dollars(c.l)),
+                    Some(cents_to_dollars(c.c)),
+                    Some(c.v as f32),
+                )
+            }
+            TickEvent::TodayEvent(_) => false,
+        }
+    }
+
+    /// Mutate-or-append today's daily bar in `raw_data`. If `raw_data`
+    /// already ends with the date derived from `ts`, mutate the last
+    /// `CandleInstance` in place (high/low expand monotonically; close
+    /// and volume overwrite). Otherwise append a new bar with index =
+    /// previous `len()`. `None` fields are left at their existing value
+    /// when mutating, or seeded from `close` when appending.
+    fn upsert_today_bar(
+        &mut self,
+        ts: i64,
+        open: Option<f32>,
+        high: Option<f32>,
+        low: Option<f32>,
+        close: Option<f32>,
+        volume: Option<f32>,
+    ) -> bool {
+        let date = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+            .map(|dt| dt.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+
+        let raw = Arc::make_mut(&mut self.raw_data);
+        let last_date = raw.dates.last().cloned();
+
+        match last_date.as_deref() {
+            Some(last) if last == date => {
+                let last_inst = raw
+                    .instances
+                    .last_mut()
+                    .expect("dates non-empty implies instances non-empty");
+                if let Some(o) = open {
+                    last_inst.open = o;
+                }
+                if let Some(h) = high {
+                    last_inst.high = last_inst.high.max(h);
+                }
+                if let Some(l) = low {
+                    last_inst.low = if last_inst.low > 0.0 {
+                        last_inst.low.min(l)
+                    } else {
+                        l
+                    };
+                }
+                if let Some(c) = close {
+                    last_inst.close = c;
+                }
+                if let Some(v) = volume {
+                    last_inst.volume = v;
+                }
+                true
+            }
+            Some(last) if last < date.as_str() => {
+                // Append a new bar for today. Seed missing OHL from
+                // close so the candle has reasonable values until the
+                // next event refines them.
+                let close_val = close.unwrap_or(0.0);
+                let new_index = raw.instances.len() as f32;
+                raw.instances.push(candle::CandleInstance {
+                    index: new_index,
+                    open: open.unwrap_or(close_val),
+                    high: high.unwrap_or(close_val),
+                    low: low.unwrap_or(close_val),
+                    close: close_val,
+                    volume: volume.unwrap_or(0.0),
+                });
+                raw.dates.push(date);
+                true
+            }
+            // Last date is in the future, or `raw_data` is empty —
+            // either way, ignore. An empty chart will populate via the
+            // historical fetch first; ticks arrive afterwards.
+            _ => false,
         }
     }
 
@@ -680,7 +1037,12 @@ impl ChartWidget {
     fn layout_rects(
         &mut self,
         ui: &mut egui::Ui,
-    ) -> (egui::Rect, egui::Rect, Vec<(egui::Rect, egui::Rect)>, egui::Rect) {
+    ) -> (
+        egui::Rect,
+        egui::Rect,
+        Vec<(egui::Rect, egui::Rect)>,
+        egui::Rect,
+    ) {
         const FOOTER_H: f32 = 28.0;
         let available = ui.available_size();
         let (full_rect, _response) = ui.allocate_exact_size(available, egui::Sense::hover());
@@ -965,7 +1327,6 @@ impl ChartWidget {
             }
         }
 
-
         // Ticker info row (above OHLC). Returns its height so we can offset
         // the OHLC row directly underneath.
         let ticker_anchor = egui::Pos2::new(chart_rect.left() + 8.0, chart_rect.top() + 8.0);
@@ -987,21 +1348,15 @@ impl ChartWidget {
             chart_rect.left() + 8.0,
             chart_rect.top() + 8.0 + ticker_height + 4.0,
         );
-        paint_ohlc_row(
-            ui,
-            chart_rect,
-            &self.data,
-            cursor_idx,
-            ohlc_anchor,
-        );
+        paint_ohlc_row(ui, chart_rect, &self.data, cursor_idx, ohlc_anchor);
 
         // Approximate OHLC row height (monospace 12px text is ~14px tall).
         let ohlc_height: f32 = 14.0;
 
         // Caret toggle button — rendered between OHLC row and indicator legend.
         {
-            use egui::{Align2, FontId, Pos2, Rect, Sense, Vec2};
             use crate::theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
+            use egui::{Align2, FontId, Pos2, Rect, Sense, Vec2};
 
             let btn_top = chart_rect.top() + 8.0 + ticker_height + 4.0 + ohlc_height + 6.0;
             let btn_rect = Rect::from_min_size(
@@ -1009,15 +1364,12 @@ impl ChartWidget {
                 Vec2::new(16.0, 16.0),
             );
 
-            let toggle_resp = ui.interact(
-                btn_rect,
-                ui.id().with("legend_toggle"),
-                Sense::click(),
-            );
+            let toggle_resp = ui.interact(btn_rect, ui.id().with("legend_toggle"), Sense::click());
 
             if toggle_resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                ui.painter_at(chart_rect).rect_filled(btn_rect, 4.0, HOVER_BG);
+                ui.painter_at(chart_rect)
+                    .rect_filled(btn_rect, 4.0, HOVER_BG);
             }
 
             let icon = if self.indicator_legend_hidden {
@@ -1760,8 +2112,8 @@ fn paint_ticker_info_row(
     timeframe_label: &str,
     anchor: egui::Pos2,
 ) -> f32 {
-    use egui::{FontId, Pos2, Rect, Stroke, Vec2};
     use crate::theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+    use egui::{FontId, Pos2, Rect, Stroke, Vec2};
 
     let painter = ui.painter_at(clip_rect);
 

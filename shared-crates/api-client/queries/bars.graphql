@@ -1,0 +1,16 @@
+query BarsQuery(
+  $symbol: String!
+  $bucket: BucketInput!
+  $from: DateTime!
+  $to: DateTime!
+  $limit: Int
+) {
+  bars(symbol: $symbol, bucket: $bucket, from: $from, to: $to, limit: $limit) {
+    ts
+    open
+    high
+    low
+    close
+    volume
+  }
+}

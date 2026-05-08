@@ -33,7 +33,9 @@ impl TickServiceHandles {
 /// Initialize the tick-service from a `Config`, spawn its background tasks,
 /// and return the axum Router that should be merged into the host server's
 /// router (it adds `/ws`).
-pub async fn start(cfg: &Config) -> Result<(
+pub async fn start(
+    cfg: &Config,
+) -> Result<(
     axum::Router,
     TickServiceHandles,
     tokio::sync::mpsc::Sender<super::coordinator::CoordCmd>,
@@ -48,7 +50,9 @@ pub async fn start(cfg: &Config) -> Result<(
         .await?,
     );
 
-    let subs = Arc::new(Mutex::new(Subscriptions::new(cfg.max_warm_symbols as usize)));
+    let subs = Arc::new(Mutex::new(Subscriptions::new(
+        cfg.max_warm_symbols as usize,
+    )));
     let (cmd_tx, cmd_rx) = coordinator::make_command_channel();
 
     let mut coord = Coordinator::new(redis.clone(), subs.clone(), cmd_rx);

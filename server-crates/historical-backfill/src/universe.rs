@@ -76,11 +76,7 @@ pub async fn fetch_universe() -> Result<Vec<String>> {
                 if quote.quote_type != "EQUITY" {
                     continue;
                 }
-                let market_cap = quote
-                    .market_cap
-                    .as_ref()
-                    .and_then(|fv| fv.raw)
-                    .unwrap_or(0);
+                let market_cap = quote.market_cap.as_ref().and_then(|fv| fv.raw).unwrap_or(0);
                 all.push((quote.symbol.clone(), market_cap));
             }
 
@@ -101,7 +97,13 @@ pub async fn fetch_universe() -> Result<Vec<String>> {
     let mut seen = std::collections::HashSet::new();
     let symbols: Vec<String> = all
         .into_iter()
-        .filter_map(|(s, _)| if seen.insert(s.clone()) { Some(s) } else { None })
+        .filter_map(|(s, _)| {
+            if seen.insert(s.clone()) {
+                Some(s)
+            } else {
+                None
+            }
+        })
         .collect();
 
     tracing::info!(count = symbols.len(), "universe fetched");

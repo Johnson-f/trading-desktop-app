@@ -13,9 +13,10 @@ const USERNAME: &str = "clerk-refresh";
 
 /// Persist a refresh token. Overwrites any existing entry.
 pub fn store_refresh_token(token: &str) -> Result<()> {
-    let entry = keyring::Entry::new(SERVICE, USERNAME)
-        .context("create keyring entry")?;
-    entry.set_password(token).context("write refresh token to keychain")?;
+    let entry = keyring::Entry::new(SERVICE, USERNAME).context("create keyring entry")?;
+    entry
+        .set_password(token)
+        .context("write refresh token to keychain")?;
     Ok(())
 }
 
@@ -36,8 +37,7 @@ pub fn load_refresh_token() -> Result<Option<String>> {
 
 /// Wipe the stored refresh token. Idempotent — silent if no entry existed.
 pub fn delete_refresh_token() -> Result<()> {
-    let entry = keyring::Entry::new(SERVICE, USERNAME)
-        .context("create keyring entry")?;
+    let entry = keyring::Entry::new(SERVICE, USERNAME).context("create keyring entry")?;
     match entry.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),

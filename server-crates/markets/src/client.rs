@@ -1,8 +1,29 @@
 use crate::auth::YahooAuth;
 use crate::constants::{Interval, Region, TimeRange};
 use crate::error::{FinanceError, Result};
+use crate::rate_limiter::RateLimiter;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tracing::{debug, info};
+
+// ============================================================================
+// Yahoo Rate Limiter
+// ============================================================================
+
+/// Yahoo's tolerated request rate is undocumented and varies by IP /
+/// time of day. 4 RPS sustained has held up across 3,500-symbol backfill
+/// cycles in testing without triggering 429s; bump only if you see
+/// consistent capacity.
+const YAHOO_MAX_REQUESTS_PER_SECOND: f64 = 4.0;
+
+static YAHOO_RATE_LIMITER: OnceCell<Arc<RateLimiter>> = OnceCell::const_new();
+
+pub(crate) async fn yahoo_rate_limiter() -> &'static Arc<RateLimiter> {
+    YAHOO_RATE_LIMITER
+        .get_or_init(|| async { Arc::new(RateLimiter::new(YAHOO_MAX_REQUESTS_PER_SECOND)) })
+        .await
+}
 
 // ============================================================================
 // Client Configuration Constants
@@ -175,18 +196,47 @@ pub struct YahooClient {
     config: ClientConfig,
 }
 
+/// Parse `Retry-After` per RFC 7231 §7.1.3. Two forms are valid:
+///   1. `Retry-After: 120`             — delta in seconds
+///   2. `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`  — absolute HTTP-date
+///
+/// Returns the delay in seconds, or `None` if the header is missing or
+/// unparseable. Negative deltas (e.g. an HTTP-date in the past) are
+/// clamped to 0.
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    let value = headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim();
+
+    // Form 1: integer seconds.
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(secs);
+    }
+
+    // Form 2: HTTP-date. Parse via httpdate and compute the offset from
+    // now, clamping negative values to zero.
+    if let Ok(when) = httpdate::parse_http_date(value) {
+        let now = std::time::SystemTime::now();
+        return Some(when.duration_since(now).map(|d| d.as_secs()).unwrap_or(0));
+    }
+
+    None
+}
+
 impl YahooClient {
     /// Check response status and return it if successful, or map the error code
     fn check_response(response: reqwest::Response) -> Result<reqwest::Response> {
         let status = response.status();
         if !status.is_success() {
-            return Err(Self::map_http_status(status.as_u16()));
+            return Err(Self::map_http_status(status.as_u16(), response.headers()));
         }
         Ok(response)
     }
 
     /// HTTP error mapping
-    fn map_http_status(status: u16) -> FinanceError {
+    fn map_http_status(status: u16, headers: &reqwest::header::HeaderMap) -> FinanceError {
         match status {
             401 => FinanceError::AuthenticationFailed {
                 context: "HTTP 401 Unauthorized".to_string(),
@@ -195,7 +245,9 @@ impl YahooClient {
                 symbol: None,
                 context: "HTTP 404 Not Found".to_string(),
             },
-            429 => FinanceError::RateLimited { retry_after: None },
+            429 => FinanceError::RateLimited {
+                retry_after: parse_retry_after(headers),
+            },
             status if status >= 500 => FinanceError::ServerError {
                 status,
                 context: format!("HTTP {}", status),
@@ -245,6 +297,8 @@ impl YahooClient {
     /// - Includes cookies via reqwest's cookie store
     /// - Sets proper headers
     pub async fn request_with_crumb(&self, url: &str) -> Result<reqwest::Response> {
+        yahoo_rate_limiter().await.acquire().await;
+
         let request = self
             .auth
             .http_client
@@ -826,6 +880,57 @@ mod tests {
         assert!(config.proxy.is_none());
     }
 
+    #[test]
+    fn retry_after_parses_integer_seconds() {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(reqwest::header::RETRY_AFTER, "120".parse().unwrap());
+        assert_eq!(parse_retry_after(&h), Some(120));
+    }
+
+    #[test]
+    fn retry_after_parses_http_date() {
+        let when = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        let value = httpdate::fmt_http_date(when);
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+        let got = parse_retry_after(&h).expect("parses");
+        // Allow ±2s slack for test scheduling.
+        assert!((58..=62).contains(&got), "got {got}");
+    }
+
+    #[test]
+    fn retry_after_missing_returns_none() {
+        let h = reqwest::header::HeaderMap::new();
+        assert_eq!(parse_retry_after(&h), None);
+    }
+
+    #[test]
+    fn retry_after_garbage_returns_none() {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(reqwest::header::RETRY_AFTER, "tomorrow".parse().unwrap());
+        assert_eq!(parse_retry_after(&h), None);
+    }
+
+    #[test]
+    fn retry_after_past_http_date_clamps_to_zero() {
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        let value = httpdate::fmt_http_date(when);
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+        assert_eq!(parse_retry_after(&h), Some(0));
+    }
+
+    #[test]
+    fn map_http_status_429_populates_retry_after() {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert(reqwest::header::RETRY_AFTER, "30".parse().unwrap());
+        let err = YahooClient::map_http_status(429, &h);
+        match err {
+            FinanceError::RateLimited { retry_after } => assert_eq!(retry_after, Some(30)),
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     #[ignore] // Requires network access
     async fn test_get_quotes() {
@@ -878,6 +983,26 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         assert!(json.get("quoteType").is_some());
+    }
+
+    #[tokio::test]
+    async fn yahoo_rate_limiter_caps_burst() {
+        let limiter = yahoo_rate_limiter().await.clone();
+        // Drain the bucket.
+        for _ in 0..(YAHOO_MAX_REQUESTS_PER_SECOND as usize) {
+            limiter.acquire().await;
+        }
+        // Next acquire must take >= ~half the per-token interval.
+        let start = tokio::time::Instant::now();
+        limiter.acquire().await;
+        let elapsed = start.elapsed();
+        let min_wait = std::time::Duration::from_secs_f64(1.0 / YAHOO_MAX_REQUESTS_PER_SECOND);
+        assert!(
+            elapsed >= min_wait / 2,
+            "expected >= {:?}, got {:?}",
+            min_wait,
+            elapsed
+        );
     }
 
     #[tokio::test]

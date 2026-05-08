@@ -53,8 +53,8 @@ impl Config {
             anyhow::bail!("MAX_WARM_SYMBOLS must be > 0");
         }
 
-        let ws_bind = std::env::var("TICK_SERVICE_WS_BIND")
-            .unwrap_or_else(|_| "0.0.0.0:8765".to_string());
+        let ws_bind =
+            std::env::var("TICK_SERVICE_WS_BIND").unwrap_or_else(|_| "0.0.0.0:8765".to_string());
 
         let today_bars_ttl_secs = std::env::var("TODAY_BARS_TTL_SECS")
             .ok()
@@ -79,10 +79,10 @@ impl Config {
 
         let typesense_url = std::env::var("TYPESENSE_URL")
             .context("TYPESENSE_URL is required (e.g. https://typesense.your-vps:8108)")?;
-        let typesense_api_key = std::env::var("TYPESENSE_API_KEY")
-            .context("TYPESENSE_API_KEY is required")?;
-        let typesense_collection = std::env::var("TYPESENSE_COLLECTION")
-            .unwrap_or_else(|_| "tickers".to_string());
+        let typesense_api_key =
+            std::env::var("TYPESENSE_API_KEY").context("TYPESENSE_API_KEY is required")?;
+        let typesense_collection =
+            std::env::var("TYPESENSE_COLLECTION").unwrap_or_else(|_| "tickers".to_string());
 
         let clickhouse_url = std::env::var("CLICKHOUSE_URL")
             .context("CLICKHOUSE_URL is required (e.g. http://localhost:8123)")?;
@@ -119,7 +119,10 @@ mod tests {
         use std::sync::Mutex;
         static SERIAL_ENV: Mutex<()> = Mutex::new(());
         let _guard = SERIAL_ENV.lock().unwrap();
-        let prev: Vec<_> = vars.iter().map(|(k, _)| (*k, std::env::var(k).ok())).collect();
+        let prev: Vec<_> = vars
+            .iter()
+            .map(|(k, _)| (*k, std::env::var(k).ok()))
+            .collect();
         for (k, v) in vars {
             match v {
                 Some(val) => unsafe { std::env::set_var(k, val) },
@@ -228,7 +231,10 @@ mod tests {
     fn typesense_collection_defaults_to_tickers() {
         let mut env = min_env();
         // Ensure TYPESENSE_COLLECTION is absent.
-        let col_idx = env.iter().position(|(k, _)| *k == "TYPESENSE_COLLECTION").unwrap();
+        let col_idx = env
+            .iter()
+            .position(|(k, _)| *k == "TYPESENSE_COLLECTION")
+            .unwrap();
         env[col_idx] = ("TYPESENSE_COLLECTION", None);
         with_env(&env, || {
             let cfg = Config::from_env().unwrap();
@@ -249,7 +255,10 @@ mod tests {
     #[test]
     fn rejects_missing_typesense_api_key() {
         let mut env = min_env();
-        let idx = env.iter().position(|(k, _)| *k == "TYPESENSE_API_KEY").unwrap();
+        let idx = env
+            .iter()
+            .position(|(k, _)| *k == "TYPESENSE_API_KEY")
+            .unwrap();
         env[idx] = ("TYPESENSE_API_KEY", None);
         with_env(&env, || {
             assert!(Config::from_env().is_err());

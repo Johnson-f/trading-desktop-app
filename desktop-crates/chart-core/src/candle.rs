@@ -546,9 +546,30 @@ mod tests {
     #[test]
     fn date_for_index_returns_date_at_position() {
         let candles = vec![
-            JsonCandle { date: "2026-01-01".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
-            JsonCandle { date: "2026-01-02".into(), open: 2.0, high: 2.0, low: 2.0, close: 2.0, volume: 0 },
-            JsonCandle { date: "2026-01-03".into(), open: 3.0, high: 3.0, low: 3.0, close: 3.0, volume: 0 },
+            JsonCandle {
+                date: "2026-01-01".into(),
+                open: 1.0,
+                high: 1.0,
+                low: 1.0,
+                close: 1.0,
+                volume: 0,
+            },
+            JsonCandle {
+                date: "2026-01-02".into(),
+                open: 2.0,
+                high: 2.0,
+                low: 2.0,
+                close: 2.0,
+                volume: 0,
+            },
+            JsonCandle {
+                date: "2026-01-03".into(),
+                open: 3.0,
+                high: 3.0,
+                low: 3.0,
+                close: 3.0,
+                volume: 0,
+            },
         ];
         let d = CandleData::from_json(&candles);
         assert_eq!(d.date_for_index(0).as_deref(), Some("2026-01-01"));
@@ -559,9 +580,30 @@ mod tests {
     #[test]
     fn nearest_index_for_date_handles_misses() {
         let candles = vec![
-            JsonCandle { date: "2026-01-05".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
-            JsonCandle { date: "2026-01-12".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
-            JsonCandle { date: "2026-01-19".into(), open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 0 },
+            JsonCandle {
+                date: "2026-01-05".into(),
+                open: 1.0,
+                high: 1.0,
+                low: 1.0,
+                close: 1.0,
+                volume: 0,
+            },
+            JsonCandle {
+                date: "2026-01-12".into(),
+                open: 1.0,
+                high: 1.0,
+                low: 1.0,
+                close: 1.0,
+                volume: 0,
+            },
+            JsonCandle {
+                date: "2026-01-19".into(),
+                open: 1.0,
+                high: 1.0,
+                low: 1.0,
+                close: 1.0,
+                volume: 0,
+            },
         ];
         let d = CandleData::from_json(&candles);
         // exact hit

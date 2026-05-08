@@ -8,6 +8,41 @@ type Query {
   version: String!
   health: String!
   searchSymbols(q: String!, limit: Int): [Symbol!]!
+  bars(
+    symbol: String!
+    bucket: BucketInput!
+    from: DateTime!
+    to: DateTime!
+    limit: Int
+  ): [HistoricalBar!]!
+}
+
+scalar DateTime
+
+enum BarUnit {
+  MINUTE
+  HOUR
+  DAY
+  WEEK
+  MONTH
+}
+
+input BucketInput {
+  unit: BarUnit!
+  count: Int!
+}
+
+"""
+One aggregated OHLCV bar from the historical store. Prices are integer
+cents (Decimal32(2) on disk) — divide by 100 to render dollars.
+"""
+type HistoricalBar {
+  ts: DateTime!
+  open: Int!
+  high: Int!
+  low: Int!
+  close: Int!
+  volume: Int!
 }
 
 type Mutation {

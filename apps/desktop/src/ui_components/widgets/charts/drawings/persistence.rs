@@ -96,7 +96,10 @@ pub fn save_all(symbol: String, drawings: Vec<CommittedDrawing>) {
     else {
         return;
     };
-    let payload: Vec<PersistedDrawing> = drawings.iter().map(PersistedDrawing::from_committed).collect();
+    let payload: Vec<PersistedDrawing> = drawings
+        .iter()
+        .map(PersistedDrawing::from_committed)
+        .collect();
     handle.spawn(async move {
         if let Err(e) = save_all_async(&pool, &symbol, &payload).await {
             eprintln!("save drawings for {symbol}: {e}");
@@ -164,9 +167,11 @@ async fn save_all_async(
         .await?;
     for d in drawings {
         let points_json = serde_json::to_string(&d.points).unwrap_or_else(|_| "[]".into());
-        let point_dates_json = serde_json::to_string(&d.point_dates).unwrap_or_else(|_| "[]".into());
+        let point_dates_json =
+            serde_json::to_string(&d.point_dates).unwrap_or_else(|_| "[]".into());
         let style_json = serde_json::to_string(&d.style).unwrap_or_else(|_| "{}".into());
-        let kind_style_json = serde_json::to_string(&d.kind_style).unwrap_or_else(|_| "null".into());
+        let kind_style_json =
+            serde_json::to_string(&d.kind_style).unwrap_or_else(|_| "null".into());
         sqlx::query(
             "INSERT INTO drawings
              (symbol, drawing_id, def_id, points_json, point_dates_json,
@@ -205,7 +210,8 @@ async fn load_all_async(
         let points: Vec<WorldPoint> = serde_json::from_str(&points_json).unwrap_or_default();
         let point_dates: Vec<String> = serde_json::from_str(&point_dates_json).unwrap_or_default();
         let style: DrawingStyle = serde_json::from_str(&style_json).unwrap_or_default();
-        let kind_style: KindStyle = serde_json::from_str(&kind_style_json).unwrap_or(KindStyle::None);
+        let kind_style: KindStyle =
+            serde_json::from_str(&kind_style_json).unwrap_or(KindStyle::None);
         let dto = PersistedDrawing {
             id: id as u64,
             def_id,

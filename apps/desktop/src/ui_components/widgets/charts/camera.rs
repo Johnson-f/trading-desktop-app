@@ -29,7 +29,12 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             x_offset: 0.0,
-            x_scale: 1.0,
+            // Pixels per candle slot. Body renders at 85% of this width
+            // (see candle.wgsl), so 16 → ~13 px body + ~3 px gap, which
+            // matches Webull's daily-chart density at a comfortable size
+            // (~50 visible bars on a typical chart pane). The wheel-zoom
+            // handler scales this freely; it's the boot value only.
+            x_scale: 16.0,
             y_offset: 0.0,
             y_scale: 1.0,
             auto_scale_y: true,

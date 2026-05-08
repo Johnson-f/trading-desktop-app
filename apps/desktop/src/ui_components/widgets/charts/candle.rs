@@ -46,10 +46,28 @@ pub fn candle_instance_desc() -> wgpu::VertexBufferLayout<'static> {
 }
 
 /// Build the candle vertex buffer from a `CandleData`.
+///
+/// wgpu refuses to allocate a 0-sized buffer, so when the chart has no
+/// candles yet (cold boot, in-flight historical fetch) we materialize
+/// a single zeroed instance. The renderer's `paint` skips the draw
+/// when `num_candles == 0`, so this padding is never read.
 pub fn create_candle_buffer(data: &CandleData, device: &wgpu::Device) -> wgpu::Buffer {
+    let placeholder = [CandleInstance {
+        index: 0.0,
+        open: 0.0,
+        high: 0.0,
+        low: 0.0,
+        close: 0.0,
+        volume: 0.0,
+    }];
+    let bytes: &[u8] = if data.instances.is_empty() {
+        bytemuck::cast_slice(&placeholder)
+    } else {
+        bytemuck::cast_slice(&data.instances)
+    };
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("candle_instance_buffer"),
-        contents: bytemuck::cast_slice(&data.instances),
+        contents: bytes,
         usage: wgpu::BufferUsages::VERTEX,
     })
 }

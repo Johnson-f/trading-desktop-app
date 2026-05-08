@@ -17,7 +17,10 @@ pub struct PkcePair {
 pub fn new_pair() -> PkcePair {
     // oauth2 5.x returns (challenge, verifier) — note the order.
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-    PkcePair { verifier, challenge }
+    PkcePair {
+        verifier,
+        challenge,
+    }
 }
 
 /// Generate a CSRF state nonce for the authorize URL. Returned as the

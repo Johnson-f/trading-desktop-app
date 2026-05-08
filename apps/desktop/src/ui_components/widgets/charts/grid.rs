@@ -116,11 +116,8 @@ pub fn paint_price_axis(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
             // Highlighted price label — auto-sized to fit the price text with
             // tight padding, right-aligned with PRICE_LABEL_RIGHT_PAD inset.
             let label_text = format!("{:.2}", close);
-            let text_galley = painter.layout_no_wrap(
-                label_text.clone(),
-                font.clone(),
-                CURRENT_PRICE_TEXT,
-            );
+            let text_galley =
+                painter.layout_no_wrap(label_text.clone(), font.clone(), CURRENT_PRICE_TEXT);
             let badge_width = text_galley.size().x + BADGE_PAD_X * 2.0;
             let badge_right = chart_rect.right() - PRICE_LABEL_RIGHT_PAD;
             let label_rect = Rect::from_min_size(

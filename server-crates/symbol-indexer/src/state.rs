@@ -47,8 +47,14 @@ pub struct RedisJobState {
 impl RedisJobState {
     pub async fn connect(url: &str) -> Result<Self> {
         let client = redis::Client::open(url).context("open redis client")?;
+        // redis 1.x defaults: 500ms response_timeout, 1s connection_timeout —
+        // way too aggressive for a WAN-hosted Redis. Match the tick-service's
+        // generous overrides so the first GET doesn't trip on slow handshakes.
+        let cm_config = redis::aio::ConnectionManagerConfig::new()
+            .set_connection_timeout(Some(std::time::Duration::from_secs(10)))
+            .set_response_timeout(Some(std::time::Duration::from_secs(30)));
         let conn = client
-            .get_connection_manager()
+            .get_connection_manager_with_config(cm_config)
             .await
             .context("redis connection manager")?;
         Ok(Self { conn })
@@ -69,7 +75,10 @@ impl JobState for RedisJobState {
     async fn save_current(&self, cursor: &RunCursor) -> Result<()> {
         let mut c = self.conn.clone();
         let json = serde_json::to_string(cursor).context("serialize cursor")?;
-        let _: () = c.set(KEY_CURRENT, json).await.context("redis SET current")?;
+        let _: () = c
+            .set(KEY_CURRENT, json)
+            .await
+            .context("redis SET current")?;
         Ok(())
     }
 

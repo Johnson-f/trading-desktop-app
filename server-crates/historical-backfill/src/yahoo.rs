@@ -26,10 +26,17 @@ impl YahooSource {
         let ticker = Ticker::new(symbol)
             .await
             .with_context(|| format!("yahoo Ticker::new {symbol}"))?;
-        let chart = ticker
-            .chart(Interval::OneDay, TimeRange::Max)
-            .await
-            .with_context(|| format!("yahoo daily chart {symbol}"))?;
+        let chart = match ticker.chart(Interval::OneDay, TimeRange::Max).await {
+            Ok(c) => c,
+            Err(e) if e.is_auth_error() => {
+                // Yahoo rejected our cached crumb (rotated before our 25-min TTL).
+                // Drop it so the next worker refetches instead of replaying the
+                // same failure until the TTL expires.
+                markets::YahooAuth::invalidate().await;
+                return Err(e).with_context(|| format!("yahoo daily chart {symbol}"));
+            }
+            Err(e) => return Err(e).with_context(|| format!("yahoo daily chart {symbol}")),
+        };
         Ok(candles_to_bars(symbol, &chart.candles))
     }
 
@@ -41,10 +48,15 @@ impl YahooSource {
         let ticker = Ticker::new(symbol)
             .await
             .with_context(|| format!("yahoo Ticker::new {symbol}"))?;
-        let chart = ticker
-            .chart(Interval::OneMinute, TimeRange::FiveDays)
-            .await
-            .with_context(|| format!("yahoo 1-min chart {symbol}"))?;
+        let chart = match ticker.chart(Interval::OneMinute, TimeRange::FiveDays).await {
+            Ok(c) => c,
+            Err(e) if e.is_auth_error() => {
+                // Same rationale as fetch_daily_max above.
+                markets::YahooAuth::invalidate().await;
+                return Err(e).with_context(|| format!("yahoo 1-min chart {symbol}"));
+            }
+            Err(e) => return Err(e).with_context(|| format!("yahoo 1-min chart {symbol}")),
+        };
         Ok(candles_to_bars(symbol, &chart.candles))
     }
 }

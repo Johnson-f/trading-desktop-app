@@ -213,15 +213,19 @@ impl Drop for UnsubscribeOnDrop {
 }
 
 fn bar_from_payload(p: BarPayload) -> Bar {
-    Bar { ts: p.ts, o: p.o, h: p.h, l: p.l, c: p.c, v: p.v }
+    Bar {
+        ts: p.ts,
+        o: p.o,
+        h: p.h,
+        l: p.l,
+        c: p.c,
+        v: p.v,
+    }
 }
 
 /// Translate one Redis stream entry into a `TickEvent`. Returns `None` if
 /// the entry's `type` field is missing or unknown.
-fn parse_stream_entry(
-    symbol: &str,
-    map: &HashMap<String, redis::Value>,
-) -> Option<TickEvent> {
+fn parse_stream_entry(symbol: &str, map: &HashMap<String, redis::Value>) -> Option<TickEvent> {
     let mut fields: HashMap<String, String> = HashMap::new();
     for (k, v) in map {
         if let redis::Value::BulkString(bytes) = v {

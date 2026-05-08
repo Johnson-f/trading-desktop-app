@@ -26,10 +26,18 @@ pub fn build_schema(
     typesense: Arc<TypesenseClient>,
     clickhouse: Arc<ClickhouseReader>,
 ) -> AppSchema {
-    let sub_ctx = SubscriptionContext { redis, redis_url, cmd_tx };
-    Schema::build(QueryRoot::default(), MutationRoot, SubscriptionRoot::default())
-        .data(sub_ctx)
-        .data(typesense)
-        .data(clickhouse)
-        .finish()
+    let sub_ctx = SubscriptionContext {
+        redis,
+        redis_url,
+        cmd_tx,
+    };
+    Schema::build(
+        QueryRoot::default(),
+        MutationRoot,
+        SubscriptionRoot::default(),
+    )
+    .data(sub_ctx)
+    .data(typesense)
+    .data(clickhouse)
+    .finish()
 }

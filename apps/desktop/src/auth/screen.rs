@@ -53,7 +53,11 @@ pub struct LoginScreen {
 
 impl LoginScreen {
     pub fn new(cfg: ClerkConfig, state: AuthStateHandle, runtime: tokio::runtime::Handle) -> Self {
-        Self { cfg, state, runtime }
+        Self {
+            cfg,
+            state,
+            runtime,
+        }
     }
 
     /// Render the screen. Returns `true` if the user just transitioned to

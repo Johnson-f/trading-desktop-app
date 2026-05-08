@@ -67,7 +67,10 @@ impl DrawingTool for Rectangle {
         let painter = painter.with_clip_rect(chart_rect);
         let stroke_color = style_color(style.color, style.opacity);
         let (fill_enabled, fill_alpha) = match kind_style {
-            KindStyle::FilledRect { fill_enabled, fill_alpha } => (*fill_enabled, *fill_alpha),
+            KindStyle::FilledRect {
+                fill_enabled,
+                fill_alpha,
+            } => (*fill_enabled, *fill_alpha),
             _ => (true, DEFAULT_FILL_ALPHA),
         };
         if fill_enabled {

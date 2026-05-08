@@ -10,7 +10,10 @@ use crate::{ApiClient, ApiError};
 /// Execute a typed GraphQL query against the configured `ApiClient`'s
 /// HTTP endpoint. Returns the decoded `ResponseData` or maps any
 /// transport / GraphQL / missing-data error into [`ApiError`].
-pub async fn execute_query<Q>(client: &ApiClient, variables: Q::Variables) -> Result<Q::ResponseData, ApiError>
+pub async fn execute_query<Q>(
+    client: &ApiClient,
+    variables: Q::Variables,
+) -> Result<Q::ResponseData, ApiError>
 where
     Q: GraphQLQuery,
     Q::Variables: Serialize,

@@ -20,7 +20,9 @@ fn apply_indicator_event(chart: &mut ChartWidget, ev: &super::indicators::Indica
                 .find(|a| a.def_id == *def_id)
                 .map(|a| a.instance_id)
             {
-                chart.manager_mut().update_params(instance_id, params.clone());
+                chart
+                    .manager_mut()
+                    .update_params(instance_id, params.clone());
             }
         }
     }
@@ -99,7 +101,6 @@ pub struct MultiChartWidget {
     pending_grid_layout: Option<GridLayout>,
 }
 
-
 impl MultiChartWidget {
     /// Create a new multi-chart widget with a single initial view
     pub fn new(symbol: String, data: CandleData) -> Self {
@@ -160,10 +161,7 @@ impl MultiChartWidget {
     pub fn into_active_chart(self) -> ChartWidget {
         let active_id = self.active_view.unwrap_or(0);
         let mut views = self.views;
-        let pos = views
-            .iter()
-            .position(|v| v.id == active_id)
-            .unwrap_or(0);
+        let pos = views.iter().position(|v| v.id == active_id).unwrap_or(0);
         let mut chart = views.swap_remove(pos).chart;
         // Multi mode suppresses per-pane toolbars; restore default so the
         // chart renders its own toolbar once it's standalone again.
@@ -364,7 +362,9 @@ impl MultiChartWidget {
         primary_down: bool,
         hit_w: f32,
     ) {
-        let Some(pos) = self.splitter_positions.get(idx).copied() else { return };
+        let Some(pos) = self.splitter_positions.get(idx).copied() else {
+            return;
+        };
         let Some(p) = pointer else {
             if !primary_down {
                 if self.dragging_splitter == Some((SplitterAxis::Vertical, idx)) {
@@ -413,7 +413,9 @@ impl MultiChartWidget {
         primary_down: bool,
         hit_w: f32,
     ) {
-        let Some(pos) = self.splitter_positions.get(idx).copied() else { return };
+        let Some(pos) = self.splitter_positions.get(idx).copied() else {
+            return;
+        };
         let Some(p) = pointer else {
             if !primary_down {
                 if self.dragging_splitter == Some((SplitterAxis::Horizontal, idx)) {
@@ -470,14 +472,8 @@ impl MultiChartWidget {
         let split_x = rect.left() + rect.width() * split_pos;
 
         vec![
-            egui::Rect::from_min_max(
-                rect.min,
-                egui::pos2(split_x - gap / 2.0, rect.max.y),
-            ),
-            egui::Rect::from_min_max(
-                egui::pos2(split_x + gap / 2.0, rect.min.y),
-                rect.max,
-            ),
+            egui::Rect::from_min_max(rect.min, egui::pos2(split_x - gap / 2.0, rect.max.y)),
+            egui::Rect::from_min_max(egui::pos2(split_x + gap / 2.0, rect.min.y), rect.max),
         ]
     }
 
@@ -488,14 +484,8 @@ impl MultiChartWidget {
         let split_y = rect.top() + rect.height() * split_pos;
 
         vec![
-            egui::Rect::from_min_max(
-                rect.min,
-                egui::pos2(rect.max.x, split_y - gap / 2.0),
-            ),
-            egui::Rect::from_min_max(
-                egui::pos2(rect.min.x, split_y + gap / 2.0),
-                rect.max,
-            ),
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, split_y - gap / 2.0)),
+            egui::Rect::from_min_max(egui::pos2(rect.min.x, split_y + gap / 2.0), rect.max),
         ]
     }
 
@@ -673,7 +663,7 @@ impl MultiChartWidget {
 
         // Allocate UI space for this view
         let inner_rect = rect.shrink(2.0);
-        
+
         // Show view controls overlay
         self.show_view_controls(ui, view_id, inner_rect);
 
@@ -692,7 +682,9 @@ impl MultiChartWidget {
     /// top-right; the pane's own inner `ChartWidget` toolbar handles timeframe
     /// selection, so no duplicate combo here.
     fn show_view_controls(&mut self, ui: &mut egui::Ui, view_id: usize, rect: egui::Rect) {
-        let Some(view) = self.views.get(view_id) else { return };
+        let Some(view) = self.views.get(view_id) else {
+            return;
+        };
         let max_rect = egui::Rect::from_min_size(
             egui::pos2(rect.right() - 32.0, rect.top() + 8.0),
             egui::vec2(24.0, 24.0),
@@ -726,8 +718,12 @@ impl MultiChartWidget {
     /// drained once per frame so multiple sync passes can read them without
     /// one consuming what the other needs.
     fn run_sync(&mut self) {
-        let Some(active_id) = self.active_view else { return };
-        let Some(active_idx) = self.views.iter().position(|v| v.id == active_id) else { return };
+        let Some(active_id) = self.active_view else {
+            return;
+        };
+        let Some(active_idx) = self.views.iter().position(|v| v.id == active_id) else {
+            return;
+        };
 
         // Drain change events once per frame so multiple sync passes can read them.
         let active_events = self.views[active_idx].chart.take_change_events();
@@ -763,7 +759,9 @@ impl MultiChartWidget {
     }
 
     fn sync_time(&mut self, active_idx: usize) {
-        let Some((start, end)) = self.views[active_idx].chart.visible_date_range() else { return };
+        let Some((start, end)) = self.views[active_idx].chart.visible_date_range() else {
+            return;
+        };
         for (i, view) in self.views.iter_mut().enumerate() {
             if i == active_idx {
                 continue;
@@ -792,7 +790,9 @@ impl MultiChartWidget {
     }
 
     fn sync_symbol_from(&mut self, active_idx: usize, pending: &Option<CandleData>) {
-        let Some(new_data) = pending.as_ref() else { return };
+        let Some(new_data) = pending.as_ref() else {
+            return;
+        };
         self.raw_data = Arc::new(new_data.clone());
         for (i, view) in self.views.iter_mut().enumerate() {
             if i == active_idx {
@@ -806,8 +806,12 @@ impl MultiChartWidget {
     /// Drain the toolbar's multi-chart toggle request from the active pane.
     /// Returns true if the user clicked the multi-chart toggle this frame.
     pub fn take_multi_chart_toggle_request(&mut self) -> bool {
-        let Some(active_id) = self.active_view else { return false };
-        let Some(view) = self.views.iter_mut().find(|v| v.id == active_id) else { return false };
+        let Some(active_id) = self.active_view else {
+            return false;
+        };
+        let Some(view) = self.views.iter_mut().find(|v| v.id == active_id) else {
+            return false;
+        };
         view.chart.take_multi_chart_toggle_request()
     }
 
@@ -821,8 +825,12 @@ impl MultiChartWidget {
     /// Force-overwrite every non-active pane's indicators to match the active
     /// pane. Call this when Indicators-sync transitions off → on.
     pub fn rehydrate_indicators(&mut self) {
-        let Some(active_id) = self.active_view else { return };
-        let Some(active_idx) = self.views.iter().position(|v| v.id == active_id) else { return };
+        let Some(active_id) = self.active_view else {
+            return;
+        };
+        let Some(active_idx) = self.views.iter().position(|v| v.id == active_id) else {
+            return;
+        };
 
         let snapshot: Vec<(&'static str, super::indicators::ParamValues)> = self.views[active_idx]
             .chart
@@ -836,7 +844,13 @@ impl MultiChartWidget {
             if i == active_idx {
                 continue;
             }
-            let to_remove: Vec<u64> = view.chart.manager().active.iter().map(|a| a.instance_id).collect();
+            let to_remove: Vec<u64> = view
+                .chart
+                .manager()
+                .active
+                .iter()
+                .map(|a| a.instance_id)
+                .collect();
             for id in to_remove {
                 view.chart.manager_mut().remove(id);
             }

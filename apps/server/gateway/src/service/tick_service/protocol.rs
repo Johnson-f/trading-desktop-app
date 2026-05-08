@@ -74,10 +74,7 @@ pub enum ServerMsg {
     },
     /// Minute boundary crossed: this candle is now finalized. The client
     /// locks it in (full opacity) and starts rendering the next minute.
-    Finalize {
-        symbol: String,
-        candle: BarPayload,
-    },
+    Finalize { symbol: String, candle: BarPayload },
     /// Reply to `Ping`.
     Pong,
     /// Server-side error — the connection stays open; the client may retry.

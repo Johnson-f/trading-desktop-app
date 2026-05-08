@@ -33,6 +33,16 @@ async fn health() -> Json<HealthResponse> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // rustls 0.23 panics on first TLS use unless a `CryptoProvider`
+    // is selected explicitly when ambiguous. Both `clickhouse` (with
+    // `rustls-tls`) and `tokio-tungstenite` (with `rustls-tls-webpki-roots`,
+    // pulled via the `markets` crate) end up sharing a single rustls
+    // build in the workspace, so we install the `ring` provider here
+    // before any TLS-using subsystem boots.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("install rustls ring crypto provider");
+
     let crate_env = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
     if dotenvy::from_path(&crate_env).is_err() {
         let _ = dotenvy::dotenv();
@@ -67,25 +77,22 @@ async fn main() -> Result<()> {
 
     // Build read-only Typesense client for symbol search (writes are owned
     // by apps/symbol-service on the VPS).
-    let typesense = std::sync::Arc::new(
-        crate::service::typesense::TypesenseClient::new(
-            &cfg.typesense_url,
-            &cfg.typesense_api_key,
-            &cfg.typesense_collection,
-        )?,
-    );
+    let typesense = std::sync::Arc::new(crate::service::typesense::TypesenseClient::new(
+        &cfg.typesense_url,
+        &cfg.typesense_api_key,
+        &cfg.typesense_collection,
+    )?);
     tracing::info!("typesense client initialized");
 
     // Build read-only ClickHouse client for historical bars (writes are
     // owned by apps/historical-service on the VPS).
-    let clickhouse = std::sync::Arc::new(
-        crate::service::historical_service::ClickhouseReader::new(
+    let clickhouse =
+        std::sync::Arc::new(crate::service::historical_service::ClickhouseReader::new(
             &cfg.clickhouse_url,
             &cfg.clickhouse_user,
             &cfg.clickhouse_password,
             &cfg.clickhouse_database,
-        )?,
-    );
+        )?);
     tracing::info!("clickhouse reader initialized");
 
     // Spawn the historical-backfill scheduler as an embedded subsystem.

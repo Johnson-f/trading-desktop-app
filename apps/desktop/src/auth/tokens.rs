@@ -39,7 +39,6 @@ impl TokenSet {
             expires_at,
         }
     }
-
 }
 
 #[cfg(test)]

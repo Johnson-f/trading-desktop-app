@@ -100,6 +100,7 @@ pub mod risk;
 // ============================================================================
 // High-level API - Primary interface for most use cases
 // ============================================================================
+pub use auth::YahooAuth;
 pub use ticker::{ClientHandle, Ticker, TickerBuilder};
 pub use tickers::{
     BatchCapitalGainsResponse, BatchChartsResponse, BatchDividendsResponse,

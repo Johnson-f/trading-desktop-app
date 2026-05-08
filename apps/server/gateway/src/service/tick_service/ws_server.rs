@@ -38,13 +38,12 @@ pub struct ServerState {
 }
 
 pub fn router(state: ServerState) -> Router {
-    Router::new().route("/ws", get(ws_handler)).with_state(state)
+    Router::new()
+        .route("/ws", get(ws_handler))
+        .with_state(state)
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<ServerState>,
-) -> Response {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<ServerState>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -73,7 +72,10 @@ async fn handle_socket(socket: WebSocket, state: ServerState) {
     let conn_cfg = redis::AsyncConnectionConfig::new()
         .set_connection_timeout(Some(std::time::Duration::from_secs(10)))
         .set_response_timeout(Some(std::time::Duration::from_secs(30)));
-    let xread_conn = match client.get_multiplexed_async_connection_with_config(&conn_cfg).await {
+    let xread_conn = match client
+        .get_multiplexed_async_connection_with_config(&conn_cfg)
+        .await
+    {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "ws: failed to open xread connection");
@@ -143,9 +145,8 @@ async fn handle_socket(socket: WebSocket, state: ServerState) {
                 // 5s block — fewer wakeups, less stress on the shared
                 // ConnectionManager when running over WAN to remote Redis.
                 let opts = StreamReadOptions::default().block(5000);
-                let result: redis::RedisResult<Option<StreamReadReply>> = conn
-                    .xread_options(&stream_keys, &stream_ids, &opts)
-                    .await;
+                let result: redis::RedisResult<Option<StreamReadReply>> =
+                    conn.xread_options(&stream_keys, &stream_ids, &opts).await;
                 result
             }
         };

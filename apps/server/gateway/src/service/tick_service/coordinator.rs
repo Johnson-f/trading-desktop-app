@@ -240,7 +240,10 @@ pub async fn seed_symbol_today(redis: &RedisState, symbol: &str) -> Result<usize
     // Floor "now" to the current minute so we never seed an in-progress bar.
     let now_secs = Utc::now().timestamp();
     let cutoff_secs = now_secs - (now_secs % 60);
-    let cutoff = Utc.timestamp_opt(cutoff_secs, 0).single().unwrap_or_else(Utc::now);
+    let cutoff = Utc
+        .timestamp_opt(cutoff_secs, 0)
+        .single()
+        .unwrap_or_else(Utc::now);
 
     let ticker = Ticker::new(symbol).await?;
     let chart = ticker.chart(Interval::OneMinute, TimeRange::OneDay).await?;

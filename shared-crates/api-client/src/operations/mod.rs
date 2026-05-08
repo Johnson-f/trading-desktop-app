@@ -3,5 +3,6 @@
 //! wrapper method on `ApiClient` that calls it via
 //! [`crate::transport::execute_query`].
 
+pub mod historical;
 pub mod symbols;
 pub mod version;

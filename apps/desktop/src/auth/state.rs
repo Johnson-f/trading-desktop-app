@@ -18,8 +18,14 @@ use super::tokens::TokenSet;
 pub enum AuthState {
     Unauthenticated,
     Loading,
-    Authenticated { #[allow(dead_code)] access_token: String, expires_at: DateTime<Utc> },
-    Failed { message: String },
+    Authenticated {
+        #[allow(dead_code)]
+        access_token: String,
+        expires_at: DateTime<Utc>,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Clone)]

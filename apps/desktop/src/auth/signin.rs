@@ -17,7 +17,11 @@ pub async fn run(cfg: ClerkConfig, state: AuthStateHandle) {
         }
         Err(e) => {
             tracing::warn!(error = %e, "sign-in failed");
-            state.set(AuthState::Failed { message: e.to_string() }).await;
+            state
+                .set(AuthState::Failed {
+                    message: e.to_string(),
+                })
+                .await;
         }
     }
 }

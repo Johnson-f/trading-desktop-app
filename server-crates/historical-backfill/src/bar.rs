@@ -39,7 +39,11 @@ impl Bar {
         if (frac - 0.5).abs() < f64::EPSILON {
             // Exactly halfway — round to even
             let floored_i = floored as i32;
-            if floored_i % 2 == 0 { floored_i } else { floored_i + 1 }
+            if floored_i % 2 == 0 {
+                floored_i
+            } else {
+                floored_i + 1
+            }
         } else {
             scaled.round() as i32
         }
@@ -80,10 +84,10 @@ mod tests {
         let bar = Bar::now_versioned(
             "AAPL",
             DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            10000,  // $100.00
-            10100,  // $101.00
-            9950,   // $99.50
-            10050,  // $100.50
+            10000, // $100.00
+            10100, // $101.00
+            9950,  // $99.50
+            10050, // $100.50
             12345,
         );
         let after = Utc::now().timestamp() as u32;

@@ -39,7 +39,10 @@ impl BucketSpec {
         if count as u32 > max {
             bail!("count out of range for unit {:?} (max {})", unit, max);
         }
-        Ok(Self { unit, count: count as u32 })
+        Ok(Self {
+            unit,
+            count: count as u32,
+        })
     }
 
     /// Source table for this bucket size. Sub-day buckets read 1m bars;
@@ -77,7 +80,10 @@ pub fn validate_symbol(symbol: &str) -> Result<()> {
     if symbol.len() > 16 {
         bail!("symbol must be at most 16 characters");
     }
-    if !symbol.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+    if !symbol
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
         bail!("symbol contains invalid characters");
     }
     Ok(())
@@ -89,11 +95,26 @@ mod tests {
 
     #[test]
     fn source_table_routing() {
-        assert_eq!(BucketSpec::new(BarUnit::Minute, 1).unwrap().source_table(), "bars_1m");
-        assert_eq!(BucketSpec::new(BarUnit::Hour, 4).unwrap().source_table(), "bars_1m");
-        assert_eq!(BucketSpec::new(BarUnit::Day, 1).unwrap().source_table(), "bars_1d");
-        assert_eq!(BucketSpec::new(BarUnit::Week, 1).unwrap().source_table(), "bars_1d");
-        assert_eq!(BucketSpec::new(BarUnit::Month, 1).unwrap().source_table(), "bars_1d");
+        assert_eq!(
+            BucketSpec::new(BarUnit::Minute, 1).unwrap().source_table(),
+            "bars_1m"
+        );
+        assert_eq!(
+            BucketSpec::new(BarUnit::Hour, 4).unwrap().source_table(),
+            "bars_1m"
+        );
+        assert_eq!(
+            BucketSpec::new(BarUnit::Day, 1).unwrap().source_table(),
+            "bars_1d"
+        );
+        assert_eq!(
+            BucketSpec::new(BarUnit::Week, 1).unwrap().source_table(),
+            "bars_1d"
+        );
+        assert_eq!(
+            BucketSpec::new(BarUnit::Month, 1).unwrap().source_table(),
+            "bars_1d"
+        );
     }
 
     #[test]

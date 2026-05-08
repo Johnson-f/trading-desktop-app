@@ -20,14 +20,14 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let clickhouse_url = std::env::var("CLICKHOUSE_URL")
-            .context("CLICKHOUSE_URL is required")?;
-        let clickhouse_user = std::env::var("CLICKHOUSE_USER")
-            .unwrap_or_else(|_| "default".to_string());
-        let clickhouse_password = std::env::var("CLICKHOUSE_PASSWORD")
-            .context("CLICKHOUSE_PASSWORD is required")?;
-        let clickhouse_database = std::env::var("CLICKHOUSE_DATABASE")
-            .unwrap_or_else(|_| "market_data".to_string());
+        let clickhouse_url =
+            std::env::var("CLICKHOUSE_URL").context("CLICKHOUSE_URL is required")?;
+        let clickhouse_user =
+            std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".to_string());
+        let clickhouse_password =
+            std::env::var("CLICKHOUSE_PASSWORD").context("CLICKHOUSE_PASSWORD is required")?;
+        let clickhouse_database =
+            std::env::var("CLICKHOUSE_DATABASE").unwrap_or_else(|_| "market_data".to_string());
 
         let schedule_hour_utc = std::env::var("SCHEDULE_HOUR_UTC")
             .ok()
@@ -68,7 +68,10 @@ mod tests {
         use std::sync::Mutex;
         static SERIAL_ENV: Mutex<()> = Mutex::new(());
         let _g = SERIAL_ENV.lock().unwrap();
-        let prev: Vec<_> = vars.iter().map(|(k, _)| (*k, std::env::var(k).ok())).collect();
+        let prev: Vec<_> = vars
+            .iter()
+            .map(|(k, _)| (*k, std::env::var(k).ok()))
+            .collect();
         for (k, v) in vars {
             match v {
                 Some(val) => unsafe { std::env::set_var(k, val) },

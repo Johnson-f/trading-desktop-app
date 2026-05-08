@@ -11,9 +11,7 @@ use crate::theme;
 fn indicator_category(id: &str) -> &'static str {
     match id {
         "ema" | "sma" | "wma" | "hma" | "alma" | "adx" | "ichimoku" => "Trend",
-        "rsi" | "macd" | "ppo" | "stochastic" | "cci" | "roc" | "williams_r" | "mfi" => {
-            "Momentum"
-        }
+        "rsi" | "macd" | "ppo" | "stochastic" | "cci" | "roc" | "williams_r" | "mfi" => "Momentum",
         "bollinger" | "keltner" | "atr" => "Volatility",
         "volume" | "obv" | "vwap" => "Volume",
         "pivot_points" | "parabolic_sar" | "supertrend" | "chandelier" => "Other",
@@ -136,10 +134,8 @@ impl IndicatorModal {
                     });
 
                     // Vertical divider
-                    let divider_rect = Rect::from_min_size(
-                        ui.cursor().min,
-                        Vec2::new(1.0, body_height),
-                    );
+                    let divider_rect =
+                        Rect::from_min_size(ui.cursor().min, Vec2::new(1.0, body_height));
                     ui.painter().rect_filled(divider_rect, 0.0, DIVIDER_ALPHA);
                     ui.advance_cursor_after_rect(divider_rect);
 
@@ -199,11 +195,16 @@ impl IndicatorModal {
             theme::ACCENT,
         );
         let btn_size = Vec2::new(btn_galley.size().x + 16.0, 22.0);
-        let btn_min = Pos2::new(rect.right() - H_PAD - btn_size.x, rect.center().y - btn_size.y / 2.0);
+        let btn_min = Pos2::new(
+            rect.right() - H_PAD - btn_size.x,
+            rect.center().y - btn_size.y / 2.0,
+        );
         let btn_rect = Rect::from_min_size(btn_min, btn_size);
         let ghost_resp = ui.interact(btn_rect, ghost_id, egui::Sense::click());
 
-        let t = ui.ctx().animate_bool_responsive(ghost_id, ghost_resp.hovered());
+        let t = ui
+            .ctx()
+            .animate_bool_responsive(ghost_id, ghost_resp.hovered());
         let border_alpha = (t * 200.0) as u8;
         let border_col = Color32::from_rgba_premultiplied(
             theme::ACCENT.r(),
@@ -233,10 +234,8 @@ impl IndicatorModal {
     // ── Tab bar ───────────────────────────────────────────────────────────────
 
     fn draw_tab_bar(&mut self, ui: &mut egui::Ui) {
-        let (band_rect, _) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width(), TAB_H),
-            egui::Sense::hover(),
-        );
+        let (band_rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), TAB_H), egui::Sense::hover());
 
         let painter = ui.painter();
         let tabs = ["Favorites", "All Indicators", "My Indicators"];
@@ -245,7 +244,8 @@ impl IndicatorModal {
 
         for (i, tab) in tabs.iter().enumerate() {
             let is_active = self.active_tab == i;
-            let tab_rect = Rect::from_min_size(Pos2::new(x, band_rect.top()), Vec2::new(tab_w, TAB_H));
+            let tab_rect =
+                Rect::from_min_size(Pos2::new(x, band_rect.top()), Vec2::new(tab_w, TAB_H));
             let tab_id = ui.id().with(("tab", i));
             let tab_resp = ui.interact(tab_rect, tab_id, egui::Sense::click());
 
@@ -367,11 +367,7 @@ impl IndicatorModal {
         let all_defs = indicators::all();
 
         // Collect added def_ids for "already added" tint + checkmark
-        let added_ids: HashSet<&'static str> = manager
-            .active
-            .iter()
-            .map(|a| a.def_id)
-            .collect();
+        let added_ids: HashSet<&'static str> = manager.active.iter().map(|a| a.def_id).collect();
 
         for &cat in CATEGORIES {
             // Gather defs for this category that pass tab + search filters
@@ -397,10 +393,8 @@ impl IndicatorModal {
 
             // Category header row
             let avail_w = ui.available_width();
-            let (hdr_rect, _) = ui.allocate_exact_size(
-                Vec2::new(avail_w, 24.0),
-                egui::Sense::hover(),
-            );
+            let (hdr_rect, _) =
+                ui.allocate_exact_size(Vec2::new(avail_w, 24.0), egui::Sense::hover());
             let painter = ui.painter();
             painter.rect_filled(hdr_rect, 0.0, theme::CATEGORY_HEADER_BG);
             painter.hline(
@@ -473,14 +467,10 @@ impl IndicatorModal {
 
                     let star_id = ui.id().with(("star", def.id));
                     let star_resp = ui.add(
-                        egui::Button::new(
-                            RichText::new(star_icon)
-                                .size(13.0)
-                                .color(star_col),
-                        )
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::NONE)
-                        .min_size(Vec2::new(20.0, ROW_H)),
+                        egui::Button::new(RichText::new(star_icon).size(13.0).color(star_col))
+                            .fill(Color32::TRANSPARENT)
+                            .stroke(Stroke::NONE)
+                            .min_size(Vec2::new(20.0, ROW_H)),
                     );
                     let _ = star_id; // used implicitly via widget id
                     if star_resp.hovered() {
@@ -498,10 +488,8 @@ impl IndicatorModal {
 
                     // Indicator name + category subtitle (stacked via painter)
                     let name_text_w = ui.available_width() - 60.0; // reserve right side
-                    let name_rect = Rect::from_min_size(
-                        ui.cursor().min,
-                        Vec2::new(name_text_w, ROW_H),
-                    );
+                    let name_rect =
+                        Rect::from_min_size(ui.cursor().min, Vec2::new(name_text_w, ROW_H));
                     ui.allocate_exact_size(Vec2::new(name_text_w, ROW_H), egui::Sense::hover());
 
                     let painter = ui.painter();
@@ -530,14 +518,10 @@ impl IndicatorModal {
                     };
 
                     let add_resp = ui.add(
-                        egui::Button::new(
-                            RichText::new(add_icon)
-                                .size(15.0)
-                                .color(add_col),
-                        )
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::NONE)
-                        .min_size(Vec2::new(32.0, ROW_H)),
+                        egui::Button::new(RichText::new(add_icon).size(15.0).color(add_col))
+                            .fill(Color32::TRANSPARENT)
+                            .stroke(Stroke::NONE)
+                            .min_size(Vec2::new(32.0, ROW_H)),
                     );
                     if add_resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -641,13 +625,25 @@ impl IndicatorModal {
             .active
             .iter()
             .filter(|a| a.indicator().target() == RenderTarget::MainOverlay)
-            .map(|a| (a.instance_id, a.def_id, a.indicator().display_name(&a.params)))
+            .map(|a| {
+                (
+                    a.instance_id,
+                    a.def_id,
+                    a.indicator().display_name(&a.params),
+                )
+            })
             .collect();
         let sub_ids: Vec<(u64, &'static str, String)> = manager
             .active
             .iter()
             .filter(|a| a.indicator().target() == RenderTarget::SubPane)
-            .map(|a| (a.instance_id, a.def_id, a.indicator().display_name(&a.params)))
+            .map(|a| {
+                (
+                    a.instance_id,
+                    a.def_id,
+                    a.indicator().display_name(&a.params),
+                )
+            })
             .collect();
 
         let mut to_edit: Option<(u64, &'static str, ParamValues)> = None;
@@ -662,14 +658,30 @@ impl IndicatorModal {
                 if !main_ids.is_empty() {
                     draw_sidebar_section_header(ui, "Main Chart");
                     for (id, def_id, label) in &main_ids {
-                        draw_sidebar_row(ui, label, &mut to_edit, &mut to_remove, *id, def_id, manager);
+                        draw_sidebar_row(
+                            ui,
+                            label,
+                            &mut to_edit,
+                            &mut to_remove,
+                            *id,
+                            def_id,
+                            manager,
+                        );
                     }
                 }
 
                 if !sub_ids.is_empty() {
                     draw_sidebar_section_header(ui, "Sub Chart");
                     for (id, def_id, label) in &sub_ids {
-                        draw_sidebar_row(ui, label, &mut to_edit, &mut to_remove, *id, def_id, manager);
+                        draw_sidebar_row(
+                            ui,
+                            label,
+                            &mut to_edit,
+                            &mut to_remove,
+                            *id,
+                            def_id,
+                            manager,
+                        );
                     }
                 }
 
@@ -702,10 +714,12 @@ impl IndicatorModal {
 
     fn draw_hairline(&self, ui: &mut egui::Ui) {
         let avail_w = ui.available_width();
-        let (line_rect, _) =
-            ui.allocate_exact_size(Vec2::new(avail_w, 1.0), egui::Sense::hover());
-        ui.painter()
-            .hline(line_rect.left()..=line_rect.right(), line_rect.top(), Stroke::new(1.0, DIVIDER_ALPHA));
+        let (line_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, 1.0), egui::Sense::hover());
+        ui.painter().hline(
+            line_rect.left()..=line_rect.right(),
+            line_rect.top(),
+            Stroke::new(1.0, DIVIDER_ALPHA),
+        );
     }
 }
 

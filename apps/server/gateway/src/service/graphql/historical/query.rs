@@ -6,10 +6,8 @@ use std::time::Instant;
 use async_graphql::{Context, Object};
 use chrono::{DateTime, Utc};
 
-use super::types::{Bar, BucketInput};
-use crate::service::historical_service::{
-    BucketSpec, ClickhouseReader, validate_symbol,
-};
+use super::types::{BucketInput, HistoricalBar};
+use crate::service::historical_service::{BucketSpec, ClickhouseReader, validate_symbol};
 
 #[derive(Default)]
 pub struct HistoricalQuery;
@@ -29,7 +27,7 @@ impl HistoricalQuery {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
         limit: Option<i32>,
-    ) -> async_graphql::Result<Vec<Bar>> {
+    ) -> async_graphql::Result<Vec<HistoricalBar>> {
         // Validation order: symbol → range → bucket → limit clamp.
         validate_symbol(&symbol)
             .map_err(|e| async_graphql::Error::new(format!("Invalid argument: {e}")))?;
@@ -67,7 +65,7 @@ impl HistoricalQuery {
 
         Ok(rows
             .into_iter()
-            .map(|b| Bar {
+            .map(|b| HistoricalBar {
                 ts: b.ts,
                 open: b.open,
                 high: b.high,

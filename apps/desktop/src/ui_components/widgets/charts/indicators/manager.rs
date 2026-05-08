@@ -10,9 +10,17 @@ use super::trait_def::{Indicator, RenderTarget};
 /// when Indicators-sync is on.
 #[derive(Debug, Clone)]
 pub enum IndicatorEvent {
-    Added { def_id: &'static str, params: ParamValues },
-    Removed { def_id: &'static str },
-    ParamsUpdated { def_id: &'static str, params: ParamValues },
+    Added {
+        def_id: &'static str,
+        params: ParamValues,
+    },
+    Removed {
+        def_id: &'static str,
+    },
+    ParamsUpdated {
+        def_id: &'static str,
+        params: ParamValues,
+    },
 }
 
 const MAX_RECENTS: usize = 7;
@@ -86,7 +94,11 @@ impl IndicatorManager {
     }
 
     pub fn remove(&mut self, instance_id: u64) {
-        if let Some(pos) = self.active.iter().position(|a| a.instance_id == instance_id) {
+        if let Some(pos) = self
+            .active
+            .iter()
+            .position(|a| a.instance_id == instance_id)
+        {
             let def_id = self.active[pos].def_id;
             self.active.remove(pos);
             self.event_buffer.push(IndicatorEvent::Removed { def_id });
@@ -117,7 +129,8 @@ impl IndicatorManager {
             .map(|a| a.def_id)
             .collect();
         for d in removed_def_ids {
-            self.event_buffer.push(IndicatorEvent::Removed { def_id: d });
+            self.event_buffer
+                .push(IndicatorEvent::Removed { def_id: d });
         }
 
         self.active.retain(|a| a.def_id != def_id);
@@ -157,7 +170,8 @@ impl IndicatorManager {
             let def_id = a.def_id;
             a.params = params.clone();
             a.cache = None;
-            self.event_buffer.push(IndicatorEvent::ParamsUpdated { def_id, params });
+            self.event_buffer
+                .push(IndicatorEvent::ParamsUpdated { def_id, params });
         }
     }
 

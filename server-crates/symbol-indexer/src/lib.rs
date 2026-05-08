@@ -21,6 +21,7 @@
 //! gateway — `JoinHandle` surfaces it and the caller logs.
 
 mod config;
+mod enrich;
 mod filter;
 mod scheduler;
 mod state;
@@ -50,11 +51,8 @@ pub async fn run(cfg: Config) -> Result<()> {
         "symbol-indexer starting"
     );
 
-    let typesense = TypesenseClient::new(
-        &cfg.typesense_url,
-        &cfg.typesense_api_key,
-        &cfg.collection,
-    )?;
+    let typesense =
+        TypesenseClient::new(&cfg.typesense_url, &cfg.typesense_api_key, &cfg.collection)?;
     typesense.ensure_collection().await?;
 
     let state = RedisJobState::connect(&cfg.redis_url).await?;

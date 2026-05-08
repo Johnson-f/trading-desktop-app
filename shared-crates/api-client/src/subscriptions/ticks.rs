@@ -27,6 +27,7 @@ impl ApiClient {
         &self,
         symbols: Vec<String>,
     ) -> Result<impl Stream<Item = Result<TicksResponse, ApiError>>, ApiError> {
-        open_subscription::<TicksSubscription>(self, ticks_subscription::Variables { symbols }).await
+        open_subscription::<TicksSubscription>(self, ticks_subscription::Variables { symbols })
+            .await
     }
 }

@@ -195,7 +195,6 @@ pub fn set_user_default(style: DrawingStyle) -> Result<(), String> {
     Ok(())
 }
 
-
 async fn load_from_database(pool: &sqlx::SqlitePool) -> Result<Option<DrawingStyle>, String> {
     let row: Option<(i64, i64, i64, i64, f64, String, f64, i64, i64)> = sqlx::query_as(
         "SELECT color_r, color_g, color_b, color_a, width, dash, opacity, extend_left, extend_right 
@@ -264,7 +263,6 @@ async fn save_drawing_defaults(pool: &sqlx::SqlitePool, style: DrawingStyle) -> 
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -130,7 +130,10 @@ impl DrawingTool for Pitchfork {
             paint_line(&painter, p2, l_end, style);
 
             let (fill_enabled, fill_alpha) = match kind_style {
-                KindStyle::Pitchfork { fill_enabled, fill_alpha } => (*fill_enabled, *fill_alpha),
+                KindStyle::Pitchfork {
+                    fill_enabled,
+                    fill_alpha,
+                } => (*fill_enabled, *fill_alpha),
                 _ => (true, DEFAULT_FILL_ALPHA),
             };
             if fill_enabled {

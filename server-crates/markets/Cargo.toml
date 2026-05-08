@@ -26,6 +26,9 @@ chrono-tz = "0.10"
 # URL parsing
 url = "2"
 
+# HTTP-date parsing (for Retry-After header)
+httpdate = "1"
+
 # Regex for parsing
 regex = "1"
 
@@ -62,3 +65,10 @@ dataframe = ["dep:polars"]
 indicators = []
 # Enable backtesting engine for strategy simulation (requires indicators)
 backtesting = ["indicators"]
+
+[dev-dependencies]
+# Re-declare tokio with `test-util` so `tokio::time::pause()` is available in
+# the rate_limiter unit tests. Cargo merges this with the [dependencies] entry,
+# so we just need the additional feature here.
+tokio = { version = "1", features = ["full", "test-util"] }
+serial_test = "3"

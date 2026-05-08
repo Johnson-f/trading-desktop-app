@@ -78,12 +78,7 @@ pub struct ClickhouseClient {
 }
 
 impl ClickhouseClient {
-    pub fn new(
-        url: &str,
-        user: &str,
-        password: &str,
-        database: &str,
-    ) -> Result<Self> {
+    pub fn new(url: &str, user: &str, password: &str, database: &str) -> Result<Self> {
         // No async_insert: we batch client-side via the native RowBinary inserter
         // (the daily/minute sync passes call insert_bars per symbol). Recommended
         // when batches are large enough on their own.
@@ -155,15 +150,15 @@ impl ClickhouseClient {
             .fetch_all::<Row>()
             .await
             .context("load symbol_metadata")?;
-        Ok(rows.into_iter().map(|r| (r.symbol, r.earliest_data)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.symbol, r.earliest_data))
+            .collect())
     }
 
     /// Persist newly-discovered earliest-data dates. Idempotent — uses the
     /// ReplacingMergeTree's `discovered_at` to dedupe re-probes.
-    pub async fn upsert_symbol_metadata(
-        &self,
-        rows: &[(String, DateTime<Utc>)],
-    ) -> Result<()> {
+    pub async fn upsert_symbol_metadata(&self, rows: &[(String, DateTime<Utc>)]) -> Result<()> {
         if rows.is_empty() {
             return Ok(());
         }

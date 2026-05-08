@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 
-use crate::filter::{quote_to_doc, TickerDoc};
+use crate::filter::{TickerDoc, quote_to_doc};
 use crate::state::{JobState, RunCursor};
 use crate::typesense::TypesenseClient;
 
@@ -121,9 +121,21 @@ async fn run_sync_inner<S: JobState, F: Screener>(
             if page.is_empty() {
                 break;
             }
-            let docs: Vec<TickerDoc> = page.iter().filter_map(quote_to_doc).collect();
+            let mut docs: Vec<TickerDoc> = page.iter().filter_map(quote_to_doc).collect();
             for d in &docs {
                 seen.insert(d.id.clone());
+            }
+            // Yahoo's screener returns sparse `longName` / `exchange` —
+            // call the batch-quote endpoint for the full page to fill
+            // them in. Failures are non-fatal: we'd rather upsert a
+            // sparse page than skip it entirely.
+            if let Err(e) = crate::enrich::enrich_with_quotes(&mut docs).await {
+                tracing::warn!(
+                    error = ?e,
+                    exchange,
+                    offset = cursor.offset,
+                    "quote enrichment failed; upserting sparse docs",
+                );
             }
             for chunk in docs.chunks(UPSERT_BATCH) {
                 let n = typesense.upsert_batch(chunk).await?;
@@ -152,7 +164,10 @@ async fn run_sync_inner<S: JobState, F: Screener>(
     Ok(())
 }
 
-async fn prune_stale(typesense: &TypesenseClient, kept: &std::collections::HashSet<String>) -> Result<usize> {
+async fn prune_stale(
+    typesense: &TypesenseClient,
+    kept: &std::collections::HashSet<String>,
+) -> Result<usize> {
     let existing = typesense.list_all_ids().await?;
     let mut removed = 0usize;
     for id in existing {
@@ -201,7 +216,12 @@ mod tests {
             offset: u32,
             size: u32,
         ) -> Result<Vec<markets::ScreenerQuote>> {
-            *self.calls.lock().await.entry(exchange.to_string()).or_insert(0) += 1;
+            *self
+                .calls
+                .lock()
+                .await
+                .entry(exchange.to_string())
+                .or_insert(0) += 1;
             let all = self.per_exchange.get(exchange).cloned().unwrap_or_default();
             let start = offset as usize;
             let end = (start + size as usize).min(all.len());
@@ -237,8 +257,8 @@ mod tests {
 
     #[tokio::test]
     async fn prune_runs_on_fresh_runs_only() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use wiremock::matchers::{method, path_regex};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -260,9 +280,7 @@ mod tests {
         // export (returns one stale id "GONE")
         Mock::given(method("GET"))
             .and(path_regex(r"^/collections/.+/documents/export$"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_string("{\"id\":\"GONE\"}\n"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string("{\"id\":\"GONE\"}\n"))
             .mount(&server)
             .await;
         // delete — count invocations
@@ -283,7 +301,11 @@ mod tests {
         let screener = FakeScreener::new(); // empty — no upserts happen
         run_sync(&state, &ts, &screener).await.unwrap();
 
-        assert_eq!(delete_count.load(Ordering::SeqCst), 1, "GONE should be deleted");
+        assert_eq!(
+            delete_count.load(Ordering::SeqCst),
+            1,
+            "GONE should be deleted"
+        );
     }
 
     #[tokio::test]

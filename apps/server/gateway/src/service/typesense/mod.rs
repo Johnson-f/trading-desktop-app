@@ -78,8 +78,8 @@ impl TypesenseClient {
         struct SearchResponse {
             hits: Vec<Hit>,
         }
-        let parsed: SearchResponse =
-            serde_json::from_str(&body).with_context(|| format!("parse typesense response: {body}"))?;
+        let parsed: SearchResponse = serde_json::from_str(&body)
+            .with_context(|| format!("parse typesense response: {body}"))?;
         Ok(parsed.hits.into_iter().map(|h| h.document).collect())
     }
 }

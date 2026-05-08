@@ -15,10 +15,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use axum::Router;
 use axum::extract::Query;
 use axum::response::Html;
 use axum::routing::get;
-use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -41,8 +41,11 @@ pub async fn sign_in(cfg: &ClerkConfig) -> Result<TokenSet> {
     // it here. Trade-off: if 8787 is already in use the sign-in fails;
     // single-user desktop, low collision risk.
     const CALLBACK_PORT: u16 = 8787;
-    let listener = TcpListener::bind(("127.0.0.1", CALLBACK_PORT)).await
-        .with_context(|| format!("bind localhost callback listener on port {CALLBACK_PORT} (in use?)"))?;
+    let listener = TcpListener::bind(("127.0.0.1", CALLBACK_PORT))
+        .await
+        .with_context(|| {
+            format!("bind localhost callback listener on port {CALLBACK_PORT} (in use?)")
+        })?;
     let redirect_uri = format!("http://127.0.0.1:{CALLBACK_PORT}/callback");
 
     // Channel from the route handler back to this function.
@@ -117,7 +120,8 @@ pub async fn sign_in(cfg: &ClerkConfig) -> Result<TokenSet> {
     server_handle.abort();
 
     // 5. Exchange code for tokens.
-    let resp: TokenResponse = exchange_code(cfg, &code, &redirect_uri, pkce.verifier.secret()).await?;
+    let resp: TokenResponse =
+        exchange_code(cfg, &code, &redirect_uri, pkce.verifier.secret()).await?;
     let token_set = TokenSet::from_response(resp, None);
 
     // 6. Persist refresh token (best effort — sign-in still succeeds even
@@ -190,8 +194,8 @@ pub async fn refresh(cfg: &ClerkConfig, refresh_token: &str) -> Result<TokenSet>
     if !status.is_success() {
         anyhow::bail!("refresh {status}: {body}");
     }
-    let parsed: TokenResponse = serde_json::from_str(&body)
-        .with_context(|| format!("parse refresh response: {body}"))?;
+    let parsed: TokenResponse =
+        serde_json::from_str(&body).with_context(|| format!("parse refresh response: {body}"))?;
     let token_set = TokenSet::from_response(parsed, Some(refresh_token.to_string()));
 
     // Rotate the persisted refresh token if Clerk issued a new one.

@@ -61,9 +61,11 @@ async fn refresh_once(cfg: &ClerkConfig, state: &AuthStateHandle) -> Result<u64>
     let refresh_token = match storage::load_refresh_token()? {
         Some(rt) => rt,
         None => {
-            state.set(AuthState::Failed {
-                message: "refresh token missing — please sign in again".into(),
-            }).await;
+            state
+                .set(AuthState::Failed {
+                    message: "refresh token missing — please sign in again".into(),
+                })
+                .await;
             return Ok(60);
         }
     };
@@ -80,9 +82,11 @@ async fn refresh_once(cfg: &ClerkConfig, state: &AuthStateHandle) -> Result<u64>
             tracing::warn!(error = %msg, "refresh failed");
             if msg.contains("400") || msg.contains("401") || msg.contains("403") {
                 let _ = storage::delete_refresh_token();
-                state.set(AuthState::Failed {
-                    message: "session expired — please sign in again".into(),
-                }).await;
+                state
+                    .set(AuthState::Failed {
+                        message: "session expired — please sign in again".into(),
+                    })
+                    .await;
             }
             Ok(60)
         }

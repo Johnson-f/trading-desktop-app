@@ -3,6 +3,7 @@ use crate::endpoints::urls::{api, base};
 use crate::error::{FinanceError, Result};
 use reqwest::Proxy;
 use std::time::{Duration, Instant};
+use tokio::sync::{OnceCell, RwLock};
 use tracing::{debug, info, warn};
 
 // ============================================================================
@@ -22,6 +23,35 @@ const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 /// Maximum age of auth before considering it stale
 #[cfg(test)]
 const AUTH_MAX_AGE: Duration = Duration::from_secs(3600); // 1 hour
+
+/// How long a fetched crumb is considered fresh. Yahoo's actual lifetime
+/// appears to be ~30 min — we cache slightly under that to refetch before
+/// it would expire mid-request and cause an `AuthenticationFailed`.
+const CRUMB_TTL: Duration = Duration::from_secs(25 * 60);
+
+/// Cached authentication: shared across every `YahooAuth::authenticate_with_config`
+/// caller in the process. Cloning is cheap (the `reqwest::Client` is internally
+/// `Arc`-wrapped and the crumb is a short String), so the cache hands out
+/// snapshots rather than references.
+#[derive(Clone)]
+struct CachedAuth {
+    crumb: String,
+    http_client: reqwest::Client,
+    acquired_at: Instant,
+}
+
+impl CachedAuth {
+    fn is_fresh(&self) -> bool {
+        self.acquired_at.elapsed() < CRUMB_TTL
+    }
+}
+
+/// Process-wide cache. `OnceCell` so we only allocate the lock on first use.
+static AUTH_CACHE: OnceCell<RwLock<Option<CachedAuth>>> = OnceCell::const_new();
+
+async fn auth_cache() -> &'static RwLock<Option<CachedAuth>> {
+    AUTH_CACHE.get_or_init(|| async { RwLock::new(None) }).await
+}
 
 /// Yahoo Finance authentication data
 #[derive(Clone)]
@@ -44,20 +74,60 @@ impl std::fmt::Debug for YahooAuth {
 }
 
 impl YahooAuth {
-    /// Authenticate with Yahoo Finance using custom configuration
+    /// Authenticate with Yahoo Finance using custom configuration.
     ///
     /// Allows specifying timeout and proxy settings for the HTTP client.
+    ///
+    /// Crumbs are cached process-wide with a 25-minute TTL (see `CRUMB_TTL`).
+    /// On a cache miss the slow path holds a write lock across two HTTP calls
+    /// (the `fc.yahoo.com` session GET and the crumb fetch); concurrent callers
+    /// wait. This is intentional single-flight — we never have two in-flight
+    /// crumb fetches process-wide. The worst-case foreground stall is one full
+    /// Yahoo round-trip plus the session-cookie GET, bounded by `config.timeout`
+    /// + `AUTH_TIMEOUT`. Callers that detect a rejected crumb (HTTP 401 /
+    /// auth-failure on the chart endpoint) should call `YahooAuth::invalidate()`
+    /// so the next call refetches.
     pub async fn authenticate_with_config(config: &ClientConfig) -> Result<Self> {
-        info!("Starting Yahoo Finance authentication");
+        // Cache fast path: if we have a fresh crumb, hand out a clone.
+        {
+            let guard = auth_cache().await.read().await;
+            if let Some(cached) = guard.as_ref() {
+                if cached.is_fresh() {
+                    debug!("Yahoo crumb cache hit");
+                    return Ok(Self {
+                        crumb: cached.crumb.clone(),
+                        last_refresh: cached.acquired_at,
+                        http_client: cached.http_client.clone(),
+                    });
+                }
+            }
+        }
 
-        // Create HTTP client with configuration
+        // Slow path: take the write lock and refresh. Double-check after
+        // acquiring to handle the thundering-herd case where many tasks
+        // raced past the read-lock check.
+        let mut guard = auth_cache().await.write().await;
+        if let Some(cached) = guard.as_ref() {
+            if cached.is_fresh() {
+                debug!("Yahoo crumb cache hit (after write-lock contention)");
+                return Ok(Self {
+                    crumb: cached.crumb.clone(),
+                    last_refresh: cached.acquired_at,
+                    http_client: cached.http_client.clone(),
+                });
+            }
+        }
+
+        info!("Fetching fresh Yahoo crumb (cache miss or expired)");
+
+        // Build a cookie-bearing client per refresh. The cookies established
+        // by visiting fc.yahoo.com are required for the crumb endpoint.
         let mut builder = reqwest::Client::builder()
             .cookie_store(true)
             .timeout(config.timeout)
             .connect_timeout(AUTH_TIMEOUT)
             .user_agent(USER_AGENT);
 
-        // Apply proxy if configured
         if let Some(proxy_url) = &config.proxy {
             debug!("Configuring proxy: {}", proxy_url);
             let proxy = Proxy::all(proxy_url)
@@ -69,14 +139,14 @@ impl YahooAuth {
             FinanceError::InternalError(format!("Failed to create HTTP client: {}", e))
         })?;
 
-        // Visit fc.yahoo.com to establish session
         debug!("Visiting {} to establish session", base::YAHOO_FC);
+        crate::client::yahoo_rate_limiter().await.acquire().await;
         client.get(base::YAHOO_FC).send().await.map_err(|e| {
             FinanceError::InternalError(format!("Failed to establish session: {}", e))
         })?;
 
-        // Try to get crumb from query1
         debug!("Attempting to fetch crumb from query1");
+        crate::client::yahoo_rate_limiter().await.acquire().await;
         let crumb = get_crumb(&client, api::CRUMB_QUERY1).await.map_err(|e| {
             warn!("Failed to fetch crumb: {}", e);
             FinanceError::AuthenticationFailed {
@@ -84,12 +154,34 @@ impl YahooAuth {
             }
         })?;
 
-        info!("Successfully authenticated with Yahoo Finance");
+        let acquired_at = Instant::now();
+        *guard = Some(CachedAuth {
+            crumb: crumb.clone(),
+            http_client: client.clone(),
+            acquired_at,
+        });
+
+        info!(
+            "Successfully authenticated with Yahoo Finance (cached for {} min)",
+            CRUMB_TTL.as_secs() / 60
+        );
         Ok(Self {
             crumb,
-            last_refresh: Instant::now(),
+            last_refresh: acquired_at,
             http_client: client,
         })
+    }
+
+    /// Drop the cached crumb so the next `authenticate_with_config` call
+    /// will refetch. Use when a downstream request returns
+    /// `AuthenticationFailed`, which is Yahoo's signal that our crumb is
+    /// no longer valid (typically due to crumb rotation before our TTL
+    /// expired).
+    pub async fn invalidate() {
+        let mut guard = auth_cache().await.write().await;
+        if guard.take().is_some() {
+            info!("Yahoo crumb cache invalidated");
+        }
     }
 
     /// Check if authentication is still valid
@@ -141,6 +233,7 @@ async fn get_crumb(client: &reqwest::Client, crumb_url: &str) -> Result<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[tokio::test]
     #[ignore = "requires network access"]
@@ -175,5 +268,67 @@ mod tests {
         };
 
         assert!(auth.can_refresh());
+    }
+
+    /// Mutates the process-wide `AUTH_CACHE` static. Serialized against
+    /// other cache-touching tests via `#[serial(yahoo_auth_cache)]` so we
+    /// can run the full test suite with default parallelism without flakes.
+    #[tokio::test]
+    #[serial(yahoo_auth_cache)]
+    async fn cache_invalidate_clears_state() {
+        YahooAuth::invalidate().await;
+        let cache = auth_cache().await;
+        let client = reqwest::Client::new();
+        *cache.write().await = Some(CachedAuth {
+            crumb: "stale".into(),
+            http_client: client,
+            acquired_at: Instant::now(),
+        });
+        assert!(cache.read().await.is_some());
+
+        YahooAuth::invalidate().await;
+        assert!(cache.read().await.is_none());
+
+        YahooAuth::invalidate().await;
+    }
+
+    #[tokio::test]
+    #[serial(yahoo_auth_cache)]
+    async fn authenticate_returns_cached_crumb_when_fresh() {
+        YahooAuth::invalidate().await;
+
+        {
+            let cache = auth_cache().await;
+            *cache.write().await = Some(CachedAuth {
+                crumb: "test-crumb-abc".into(),
+                http_client: reqwest::Client::new(),
+                acquired_at: Instant::now(),
+            });
+        }
+
+        let auth = YahooAuth::authenticate_with_config(&ClientConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(auth.crumb, "test-crumb-abc");
+
+        YahooAuth::invalidate().await;
+    }
+
+    #[test]
+    fn cached_auth_freshness_uses_ttl() {
+        let client = reqwest::Client::new();
+        let fresh = CachedAuth {
+            crumb: "x".into(),
+            http_client: client.clone(),
+            acquired_at: Instant::now(),
+        };
+        assert!(fresh.is_fresh());
+
+        let stale = CachedAuth {
+            crumb: "x".into(),
+            http_client: client,
+            acquired_at: Instant::now() - CRUMB_TTL - Duration::from_secs(1),
+        };
+        assert!(!stale.is_fresh());
     }
 }

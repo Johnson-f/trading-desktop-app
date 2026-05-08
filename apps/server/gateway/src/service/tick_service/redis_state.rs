@@ -172,11 +172,7 @@ pub struct RedisState {
 }
 
 impl RedisState {
-    pub async fn connect(
-        url: &str,
-        updates_maxlen: u64,
-        today_bars_ttl_secs: u64,
-    ) -> Result<Self> {
+    pub async fn connect(url: &str, updates_maxlen: u64, today_bars_ttl_secs: u64) -> Result<Self> {
         let client = redis::Client::open(url).context("open redis client")?;
         // redis 1.x defaults: 500ms response_timeout, 1s connection_timeout —
         // way too aggressive for a WAN-hosted Redis. Override generously so
@@ -216,9 +212,10 @@ impl RedisState {
         tick_ts_ms: i64,
     ) -> Result<ApplyResult> {
         let mut conn = self.conn.clone();
-        let bucket_ts = Utc.timestamp_opt(bucket_start, 0).single().ok_or_else(|| {
-            anyhow::anyhow!("invalid bucket_start {} for {symbol}", bucket_start)
-        })?;
+        let bucket_ts = Utc
+            .timestamp_opt(bucket_start, 0)
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("invalid bucket_start {} for {symbol}", bucket_start))?;
         let bars_key = today_bars_key(symbol, bucket_ts);
         let result: Vec<i64> = self
             .apply_tick
@@ -285,9 +282,10 @@ impl RedisState {
     pub async fn finalize_bar(&self, symbol: &str, bar: BarPayload) -> Result<()> {
         let mut conn = self.conn.clone();
         let bar_json = serde_json::to_string(&bar)?;
-        let ts = Utc.timestamp_opt(bar.ts, 0).single().ok_or_else(|| {
-            anyhow::anyhow!("invalid bucket_start {} for {symbol}", bar.ts)
-        })?;
+        let ts = Utc
+            .timestamp_opt(bar.ts, 0)
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("invalid bucket_start {} for {symbol}", bar.ts))?;
         let bars_key = today_bars_key(symbol, ts);
         redis::pipe()
             .atomic()
@@ -399,9 +397,10 @@ impl RedisState {
             return Ok(());
         }
         let mut conn = self.conn.clone();
-        let first_ts = Utc.timestamp_opt(bars[0].ts, 0).single().ok_or_else(|| {
-            anyhow::anyhow!("invalid bucket_start {} for {symbol}", bars[0].ts)
-        })?;
+        let first_ts = Utc
+            .timestamp_opt(bars[0].ts, 0)
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("invalid bucket_start {} for {symbol}", bars[0].ts))?;
         let bars_key = today_bars_key(symbol, first_ts);
         let mut pipe = redis::pipe();
         pipe.atomic();
@@ -409,7 +408,8 @@ impl RedisState {
             let bar_json = serde_json::to_string(bar)?;
             pipe.hset(&bars_key, bar.ts, bar_json).ignore();
         }
-        pipe.expire(&bars_key, self.today_bars_ttl_secs as i64).ignore();
+        pipe.expire(&bars_key, self.today_bars_ttl_secs as i64)
+            .ignore();
         pipe.query_async::<()>(&mut conn)
             .await
             .with_context(|| format!("seed_today_bars for {symbol}"))?;
@@ -434,14 +434,10 @@ mod tests {
     #[test]
     fn today_bars_key_uses_eastern_date() {
         // 2024-01-03 03:00 UTC = 2024-01-02 22:00 ET → uses 2024-01-02
-        let ts = chrono::Utc
-            .with_ymd_and_hms(2024, 1, 3, 3, 0, 0)
-            .unwrap();
+        let ts = chrono::Utc.with_ymd_and_hms(2024, 1, 3, 3, 0, 0).unwrap();
         assert_eq!(today_bars_key("AAPL", ts), "tick:bars:2024-01-02:AAPL");
         // 2024-01-03 14:30 UTC = 2024-01-03 09:30 ET → uses 2024-01-03
-        let ts2 = chrono::Utc
-            .with_ymd_and_hms(2024, 1, 3, 14, 30, 0)
-            .unwrap();
+        let ts2 = chrono::Utc.with_ymd_and_hms(2024, 1, 3, 14, 30, 0).unwrap();
         assert_eq!(today_bars_key("AAPL", ts2), "tick:bars:2024-01-03:AAPL");
     }
 }

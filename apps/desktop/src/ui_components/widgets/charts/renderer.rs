@@ -142,7 +142,8 @@ impl CallbackTrait for ChartCallback {
         match map.0.entry(self.id) {
             std::collections::hash_map::Entry::Vacant(v) => {
                 let camera = self.camera.lock();
-                let res = ChartResources::new(device, self.target_format, self.data.clone(), &camera);
+                let res =
+                    ChartResources::new(device, self.target_format, self.data.clone(), &camera);
                 v.insert(res);
             }
             std::collections::hash_map::Entry::Occupied(mut o) => {
@@ -164,8 +165,18 @@ impl CallbackTrait for ChartCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let Some(map) = resources.get::<ChartResourcesMap>() else { return };
-        let Some(res) = map.0.get(&self.id) else { return };
+        let Some(map) = resources.get::<ChartResourcesMap>() else {
+            return;
+        };
+        let Some(res) = map.0.get(&self.id) else {
+            return;
+        };
+        // Empty data ⇒ zero-sized vertex buffer; `slice(..)` panics on
+        // those, so just skip the candle pass and let the egui overlay
+        // (axis chrome, watermark) render alone.
+        if res.num_candles == 0 {
+            return;
+        }
         render_pass.set_pipeline(&res.pipeline);
         render_pass.set_bind_group(0, &res.camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, res.candle_buffer.slice(..));
