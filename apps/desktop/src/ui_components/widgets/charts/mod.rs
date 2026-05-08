@@ -21,7 +21,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
 
 use camera::Camera;
-pub use range::Range;
 pub use candle::{CandleData, JsonCandle, Timeframe};
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use drawings::{
@@ -31,7 +30,9 @@ use drawings::{
 use indicators::{self as ind, IndicatorEvent, IndicatorManager, ParamValues};
 use interaction::InteractionState;
 use pane::SubPaneStack;
+pub use range::Range;
 use renderer::ChartCallback;
+use zaned_chart_core::BaseScale;
 
 /// Single-letter label for Timeframe — used in the compact footer row.
 /// Apply theme-aware visuals INSIDE a ComboBox popup closure. The popup
@@ -64,6 +65,7 @@ fn apply_dropdown_popup_visuals(ui: &mut egui::Ui) {
 
 fn timeframe_short(tf: Timeframe) -> &'static str {
     match tf {
+        Timeframe::Minute1 => "1m",
         Timeframe::Daily => "D",
         Timeframe::Weekly => "W",
         Timeframe::Monthly => "M",
@@ -254,19 +256,42 @@ impl ChartWidget {
         if timeframe == self.timeframe {
             return;
         }
+        let prev_scale = self.timeframe.base_scale();
+        let new_scale = timeframe.base_scale();
         self.timeframe = timeframe;
+
+        if prev_scale != new_scale {
+            // Base-scale change (e.g. Daily ↔ Minute1) requires a fresh
+            // fetch from the gateway because the underlying series is
+            // different — daily bars vs 1-minute bars. Clear the chart
+            // immediately, fire a new historical load, and let the
+            // existing per-frame poll wire up the result via
+            // `set_data`. Tick subscription stays open; deltas keep
+            // landing into the (soon-rebuilt) `raw_data`.
+            self.raw_data = Arc::new(CandleData {
+                instances: Vec::new(),
+                dates: Vec::new(),
+            });
+            self.data = Arc::new(self.raw_data.aggregated(timeframe));
+            self.manager.invalidate_cache();
+            self.drawings.remap_to_data(&self.data);
+            self.older_history_exhausted = false;
+            self.earliest_loaded_ts = None;
+            if let Some(symbol) = self.symbol.clone() {
+                self.pending_candles_load =
+                    Some(crate::api::candle_loader::load_async(symbol, new_scale));
+            }
+            // Camera re-fits when the new data lands (`set_data` does
+            // it). Don't fit to empty data here — that just centers on
+            // index 0 with no real bounds.
+            return;
+        }
+
+        // Same-base-scale switch (Daily ↔ Weekly ↔ Monthly): just re-
+        // aggregate in memory.
         self.data = Arc::new(self.raw_data.aggregated(timeframe));
-        // Stale VMA / EMA / RSI caches would be wrong length for the new
-        // series — force a recompute.
         self.manager.invalidate_cache();
-        // Re-anchor committed drawings to the new (aggregated) index space
-        // using each point's stored date.
         self.drawings.remap_to_data(&self.data);
-        // Reset zoom/pan to fit the aggregated series — otherwise the prior
-        // x_offset/x_scale (sized for daily candles) lands mid-data at a
-        // wildly-wrong position after aggregation. Use the same default
-        // as `Camera::default()` so the candle width is consistent across
-        // timeframes.
         let mut camera = self.camera.lock();
         camera.x_scale = 16.0;
         camera.fit_to_data(&self.data);
@@ -443,7 +468,10 @@ impl ChartWidget {
         // Kick off async loads — the per-frame poll helpers swap each
         // result in once its future resolves.
         self.pending_drawings_load = Some(drawings::persistence::load_async(symbol.clone()));
-        self.pending_candles_load = Some(crate::api::candle_loader::load_async(symbol.clone()));
+        self.pending_candles_load = Some(crate::api::candle_loader::load_async(
+            symbol.clone(),
+            self.timeframe.base_scale(),
+        ));
         // New symbol → reset backfill state. The previous symbol's
         // in-flight request would land into the wrong data; the
         // exhausted flag is also per-symbol.
@@ -559,8 +587,11 @@ impl ChartWidget {
             return;
         }
         drop(camera);
-        self.pending_older_candles_load =
-            Some(crate::api::candle_loader::load_older_async(symbol, before));
+        self.pending_older_candles_load = Some(crate::api::candle_loader::load_older_async(
+            symbol,
+            self.timeframe.base_scale(),
+            before,
+        ));
     }
 
     /// Drain a completed backfill fetch. On a non-empty result, prepend
@@ -717,12 +748,20 @@ impl ChartWidget {
         }
     }
 
-    /// Mutate-or-append today's daily bar in `raw_data`. If `raw_data`
-    /// already ends with the date derived from `ts`, mutate the last
-    /// `CandleInstance` in place (high/low expand monotonically; close
-    /// and volume overwrite). Otherwise append a new bar with index =
-    /// previous `len()`. `None` fields are left at their existing value
-    /// when mutating, or seeded from `close` when appending.
+    /// Mutate-or-append the current bar in `raw_data`. "Current" means
+    /// today's daily bar on the daily base, or the in-progress 1-min
+    /// bar on the minute base. If `raw_data` already ends with the
+    /// bucket-key derived from `ts`, mutate the last `CandleInstance`
+    /// in place (high/low expand monotonically; close and volume
+    /// overwrite). Otherwise append a new bar with index = previous
+    /// `len()`. `None` fields are left at their existing value when
+    /// mutating, or seeded from `close` when appending.
+    ///
+    /// Bucket-key format follows the active base scale and matches
+    /// what `candle_loader::bars_to_candle_data` produces for fetched
+    /// bars, so live ticks line up cleanly with historical rows:
+    ///   - `Daily`  → `YYYY-MM-DD` (one bucket per UTC day)
+    ///   - `Minute` → `YYYY-MM-DD HH:MM` (one bucket per UTC minute)
     fn upsert_today_bar(
         &mut self,
         ts: i64,
@@ -742,9 +781,19 @@ impl ChartWidget {
         // ghost candles instead of updating today's bar — making the
         // chart appear frozen between 1-minute boundary finalizes.
         let ts_secs = if ts > 10_000_000_000 { ts / 1000 } else { ts };
+        let scale = self.timeframe.base_scale();
         let date = chrono::DateTime::<chrono::Utc>::from_timestamp(ts_secs, 0)
-            .map(|dt| dt.format("%Y-%m-%d").to_string())
-            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+            .map(|dt| match scale {
+                BaseScale::Daily => dt.format("%Y-%m-%d").to_string(),
+                BaseScale::Minute => dt.format("%Y-%m-%d %H:%M").to_string(),
+            })
+            .unwrap_or_else(|| {
+                let now = chrono::Utc::now();
+                match scale {
+                    BaseScale::Daily => now.format("%Y-%m-%d").to_string(),
+                    BaseScale::Minute => now.format("%Y-%m-%d %H:%M").to_string(),
+                }
+            });
 
         let raw = Arc::make_mut(&mut self.raw_data);
         let last_date = raw.dates.last().cloned();
@@ -776,10 +825,17 @@ impl ChartWidget {
                 }
                 true
             }
-            Some(last) if last < date.as_str() => {
-                // Append a new bar for today. Seed missing OHL from
-                // close so the candle has reasonable values until the
-                // next event refines them.
+            None | Some(_) if last_date.as_deref().is_none_or(|l| l < date.as_str()) => {
+                // Append a new bar — covers two cases:
+                //   1. `raw_data` is empty (no historical bars
+                //      returned, e.g. Minute1 against an unpopulated
+                //      `bars_1m` table). The first live tick seeds
+                //      the series.
+                //   2. The current bucket key has advanced past the
+                //      last loaded bar (a fresh minute / day rolled
+                //      over while we were watching).
+                // Seed missing OHL from `close` so the candle has
+                // reasonable values until the next event refines them.
                 let close_val = close.unwrap_or(0.0);
                 let new_index = raw.instances.len() as f32;
                 raw.instances.push(candle::CandleInstance {
@@ -793,9 +849,8 @@ impl ChartWidget {
                 raw.dates.push(date);
                 true
             }
-            // Last date is in the future, or `raw_data` is empty —
-            // either way, ignore. An empty chart will populate via the
-            // historical fetch first; ticks arrive afterwards.
+            // Last date is in the future relative to this tick — out-
+            // of-order delivery. Ignore rather than rewrite history.
             _ => false,
         }
     }
@@ -1085,7 +1140,13 @@ impl ChartWidget {
         }
         let camera = self.camera.lock();
         grid::paint_price_grid(ui, chart_rect, &camera, &self.data);
-        grid::paint_time_grid(ui, chart_rect, &camera, &self.data);
+        grid::paint_time_grid(
+            ui,
+            chart_rect,
+            &camera,
+            &self.data,
+            self.timeframe.base_scale(),
+        );
     }
 
     /// Render the compact single-row bottom footer (Webull-style):

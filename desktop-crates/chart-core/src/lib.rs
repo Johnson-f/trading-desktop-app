@@ -8,7 +8,7 @@ pub mod indicators;
 pub mod params;
 pub mod series;
 
-pub use candle::{CandleData, CandleInstance, JsonCandle, Timeframe};
+pub use candle::{BaseScale, CandleData, CandleInstance, JsonCandle, Timeframe};
 pub use color::Rgba;
 pub use indicators::{
     compute_adx, compute_alma, compute_atr, compute_bollinger, compute_cci, compute_chandelier,

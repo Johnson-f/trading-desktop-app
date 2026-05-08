@@ -136,15 +136,31 @@ pub fn paint_price_axis(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
     }
 }
 
-/// Paint time labels along the bottom — month names + year markers
-pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &CandleData) {
+/// Paint time labels along the bottom of the chart. The label format
+/// depends on the active [`BaseScale`]:
+///   - `Daily`  → month names + year markers (e.g. "Jan", "Feb",
+///                "2025"). Labels span large date ranges cleanly.
+///   - `Minute` → time-of-day (e.g. "09:30", "10:00") with date
+///                markers on day boundaries (e.g. "May 8"). Labels
+///                give intraday charts the H:MM granularity users
+///                expect.
+///
+/// Both modes share the same visual chrome — fade-in around the
+/// minimum-label-gap threshold so labels don't pop as the user zooms.
+pub fn paint_time_grid(
+    ui: &egui::Ui,
+    chart_rect: Rect,
+    camera: &Camera,
+    data: &CandleData,
+    scale: zaned_chart_core::BaseScale,
+) {
     if data.len() == 0 {
         return;
     }
 
     let painter = ui.painter_at(chart_rect);
     let font = FontId::monospace(9.0);
-    let year_font = FontId::monospace(10.0);
+    let primary_font = FontId::monospace(10.0);
 
     let start = (camera.x_offset as usize).max(0);
     let visible_count = (chart_rect.width() as f64 / camera.x_scale).ceil() as usize;
@@ -156,16 +172,22 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
 
     // Smooth zoom transitions: instead of a binary "draw if gap > 60px",
     // we fade labels in/out across a 30px window starting at the minimum
-    // gap. As the user zooms, a label whose gap to its predecessor is just
-    // above the threshold ramps from invisible → fully opaque, instead of
-    // popping in. Same idea on zoom-out.
-    let mut last_month = String::new();
-    let mut last_year = String::new();
-    let mut last_label_x: f32 = f32::MIN;
+    // gap. As the user zooms, a label whose gap to its predecessor is
+    // just above the threshold ramps from invisible → fully opaque,
+    // instead of popping in. Same idea on zoom-out.
     let min_label_gap: f32 = 60.0;
     let fade_range: f32 = 30.0;
+    let primary_color = Color32::from_rgb(180, 180, 190);
 
-    let year_color = Color32::from_rgb(180, 180, 190);
+    // Per-scale state. For daily we track (year, month). For minute we
+    // track (date, hour-bucket) so the date label promotes to "May 8"
+    // on day boundaries and times align to clean clock points (every
+    // minute, every 5 min, etc., depending on zoom).
+    let mut last_year = String::new();
+    let mut last_month = String::new();
+    let mut last_date = String::new();
+    let mut last_hour_label = String::new();
+    let mut last_label_x: f32 = f32::MIN;
 
     for i in start..end {
         if i >= data.dates.len() {
@@ -177,9 +199,6 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
             continue;
         }
 
-        let yyyy = &date[0..4];
-        let mm = &date[5..7];
-
         let x_pixel = ((i as f64 - camera.x_offset) * camera.x_scale) as f32;
         let x = chart_rect.left() + x_pixel;
 
@@ -188,58 +207,106 @@ pub fn paint_time_grid(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: &
         }
 
         let gap = x - last_label_x;
-        // 0 below min_gap, 1 above min_gap+fade_range, linear in between.
         let alpha = ((gap - min_label_gap) / fade_range).clamp(0.0, 1.0);
         if alpha <= 0.0 {
             continue;
         }
 
-        let month_key = format!("{}-{}", yyyy, mm);
+        match scale {
+            zaned_chart_core::BaseScale::Daily => {
+                let yyyy = &date[0..4];
+                let mm = &date[5..7];
 
-        // Year marker takes priority over month marker on a Jan candle.
-        if yyyy != last_year {
-            last_year = yyyy.to_string();
-            last_month = month_key.clone();
-            last_label_x = x;
+                // Year marker takes priority over month marker on a
+                // Jan candle.
+                if yyyy != last_year {
+                    last_year = yyyy.to_string();
+                    last_month = format!("{yyyy}-{mm}");
+                    last_label_x = x;
 
-            painter.text(
-                Pos2::new(x, chart_rect.bottom() - 4.0),
-                egui::Align2::CENTER_BOTTOM,
-                yyyy,
-                year_font.clone(),
-                fade_color(year_color, alpha),
-            );
-            continue;
+                    painter.text(
+                        Pos2::new(x, chart_rect.bottom() - 4.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        yyyy,
+                        primary_font.clone(),
+                        fade_color(primary_color, alpha),
+                    );
+                    continue;
+                }
+
+                let month_key = format!("{yyyy}-{mm}");
+                if month_key != last_month {
+                    last_month = month_key;
+                    last_label_x = x;
+                    painter.text(
+                        Pos2::new(x, chart_rect.bottom() - 4.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        month_short(mm),
+                        font.clone(),
+                        fade_color(LABEL_COLOR, alpha),
+                    );
+                }
+            }
+            zaned_chart_core::BaseScale::Minute => {
+                // Expect `YYYY-MM-DD HH:MM` (16 chars). If shorter,
+                // fall back to date-only and skip the time component.
+                let day = &date[0..10];
+                let time = if date.len() >= 16 { &date[11..16] } else { "" };
+
+                // Day boundary takes priority — render "May 8" so the
+                // user can see the calendar boundary even on intraday.
+                if day != last_date {
+                    last_date = day.to_string();
+                    last_hour_label = time.to_string();
+                    last_label_x = x;
+
+                    let mm = &day[5..7];
+                    let dd_str = &day[8..10];
+                    let dd_trim = dd_str.trim_start_matches('0');
+                    let label = format!("{} {}", month_short(mm), dd_trim);
+                    painter.text(
+                        Pos2::new(x, chart_rect.bottom() - 4.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        label,
+                        primary_font.clone(),
+                        fade_color(primary_color, alpha),
+                    );
+                    continue;
+                }
+
+                if !time.is_empty() && time != last_hour_label {
+                    last_hour_label = time.to_string();
+                    last_label_x = x;
+                    painter.text(
+                        Pos2::new(x, chart_rect.bottom() - 4.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        time,
+                        font.clone(),
+                        fade_color(LABEL_COLOR, alpha),
+                    );
+                }
+            }
         }
+    }
+}
 
-        if month_key != last_month {
-            last_month = month_key;
-            last_label_x = x;
-
-            let month_name = match mm {
-                "01" => "Jan",
-                "02" => "Feb",
-                "03" => "Mar",
-                "04" => "Apr",
-                "05" => "May",
-                "06" => "Jun",
-                "07" => "Jul",
-                "08" => "Aug",
-                "09" => "Sep",
-                "10" => "Oct",
-                "11" => "Nov",
-                "12" => "Dec",
-                _ => mm,
-            };
-
-            painter.text(
-                Pos2::new(x, chart_rect.bottom() - 4.0),
-                egui::Align2::CENTER_BOTTOM,
-                month_name,
-                font.clone(),
-                fade_color(LABEL_COLOR, alpha),
-            );
-        }
+/// Short English month name from a `MM` string. Returns the input on
+/// unknown values so callers fall back gracefully on garbage data.
+fn month_short(mm: &str) -> &str {
+    match mm {
+        "01" => "Jan",
+        "02" => "Feb",
+        "03" => "Mar",
+        "04" => "Apr",
+        "05" => "May",
+        "06" => "Jun",
+        "07" => "Jul",
+        "08" => "Aug",
+        "09" => "Sep",
+        "10" => "Oct",
+        "11" => "Nov",
+        "12" => "Dec",
+        _ => mm,
     }
 }
 

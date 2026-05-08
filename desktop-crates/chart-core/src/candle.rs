@@ -1,18 +1,40 @@
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 
-/// Granularity at which raw daily candles are aggregated into higher-
-/// timeframe bars. `Daily` is a no-op (raw data passes through unchanged).
+/// Granularity at which raw candles are aggregated. Each `Timeframe`
+/// belongs to a single [`BaseScale`] — `Minute1` lives on the minute
+/// base (raw data is 1-minute bars), `Daily` / `Weekly` / `Monthly`
+/// live on the daily base (raw data is daily bars). Aggregation
+/// happens *within* a base; switching base requires refetching the
+/// underlying series at the new resolution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Timeframe {
+    /// 1-minute bars (intraday, raw passthrough on the minute base).
+    Minute1,
+    /// Daily bars (passthrough on the daily base).
     Daily,
+    /// Calendar-week aggregation of daily bars.
     Weekly,
+    /// Calendar-month aggregation of daily bars.
     Monthly,
+}
+
+/// Which underlying series a `Timeframe` aggregates from. Used by the
+/// chart loader to decide whether a timeframe change requires a fresh
+/// fetch from the gateway (`Minute` ↔ `Daily`) or just an in-memory
+/// re-aggregation pass (`Daily` ↔ `Weekly` ↔ `Monthly`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BaseScale {
+    /// Underlying series is 1-minute bars.
+    Minute,
+    /// Underlying series is daily bars.
+    Daily,
 }
 
 impl Timeframe {
     pub fn short_label(self) -> &'static str {
         match self {
+            Timeframe::Minute1 => "1m",
             Timeframe::Daily => "1D",
             Timeframe::Weekly => "1W",
             Timeframe::Monthly => "1M",
@@ -21,14 +43,27 @@ impl Timeframe {
 
     pub fn long_label(self) -> &'static str {
         match self {
+            Timeframe::Minute1 => "1 Minute",
             Timeframe::Daily => "Daily",
             Timeframe::Weekly => "Weekly",
             Timeframe::Monthly => "Monthly",
         }
     }
 
-    pub const ALL: &'static [Timeframe] =
-        &[Timeframe::Daily, Timeframe::Weekly, Timeframe::Monthly];
+    /// The underlying series this timeframe aggregates from.
+    pub fn base_scale(self) -> BaseScale {
+        match self {
+            Timeframe::Minute1 => BaseScale::Minute,
+            Timeframe::Daily | Timeframe::Weekly | Timeframe::Monthly => BaseScale::Daily,
+        }
+    }
+
+    pub const ALL: &'static [Timeframe] = &[
+        Timeframe::Minute1,
+        Timeframe::Daily,
+        Timeframe::Weekly,
+        Timeframe::Monthly,
+    ];
 }
 
 #[repr(C)]
@@ -129,14 +164,15 @@ impl CandleData {
         }
     }
 
-    /// Roll up daily candles into calendar-aligned higher-timeframe bars.
-    /// Unlike `bucketed` (which groups by count), this respects ISO weeks and
-    /// calendar months. Date strings are expected in `YYYY-MM-DD` format;
+    /// Roll up the base series into the requested timeframe's bars.
+    /// `Daily` and `Minute1` are passthrough (each is the raw bar at
+    /// its own base scale). `Weekly` / `Monthly` group consecutive
+    /// daily bars by ISO-week-start / calendar-month, respectively.
+    /// Date strings are expected in `YYYY-MM-DD[ HH:MM[:SS]]` format;
     /// un-parseable rows fall into their own single-candle bucket.
-    ///
-    /// `Timeframe::Daily` returns a trivial clone.
     pub fn aggregated(&self, timeframe: Timeframe) -> Self {
-        if matches!(timeframe, Timeframe::Daily) || self.instances.is_empty() {
+        // Passthrough: same-base "raw" timeframes don't aggregate.
+        if matches!(timeframe, Timeframe::Daily | Timeframe::Minute1) || self.instances.is_empty() {
             return Self {
                 instances: self.instances.clone(),
                 dates: self.dates.clone(),
@@ -289,7 +325,12 @@ fn days_between_yyyy_mm_dd(a: &str, b: &str) -> i64 {
 fn bucket_key(date: &str, timeframe: Timeframe) -> i64 {
     match parse_ymd(date) {
         Some((y, m, d)) => match timeframe {
-            Timeframe::Daily => jdn(y, m, d),
+            // Passthrough timeframes never call `aggregated`'s loop, but
+            // for completeness give them a unique-per-row key. JDN works
+            // for daily; intraday rows would alias on it but `Minute1`
+            // is short-circuited before this branch in `aggregated`, so
+            // it's effectively unreachable here.
+            Timeframe::Daily | Timeframe::Minute1 => jdn(y, m, d),
             // Monthly: (year * 12 + month) — monotonic and unique per month.
             Timeframe::Monthly => (y as i64) * 12 + (m as i64 - 1),
             // Weekly: JDN / 7. Integer division naturally groups Mon..Sun

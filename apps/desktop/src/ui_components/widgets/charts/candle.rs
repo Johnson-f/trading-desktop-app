@@ -3,7 +3,7 @@
 
 use wgpu::util::DeviceExt;
 
-pub use zaned_chart_core::{CandleData, CandleInstance, JsonCandle, Timeframe};
+pub use zaned_chart_core::{BaseScale, CandleData, CandleInstance, JsonCandle, Timeframe};
 
 /// Vertex buffer layout for `CandleInstance` as a per-instance vertex input.
 pub fn candle_instance_desc() -> wgpu::VertexBufferLayout<'static> {

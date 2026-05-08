@@ -99,7 +99,17 @@ pub fn paint_crosshair(
                 let yyyy = &full[0..4];
                 let mm = &full[5..7];
                 let dd = &full[8..10];
-                format!("{}/{}/{}", mm, dd, yyyy)
+                // Minute-base bars carry `YYYY-MM-DD HH:MM` (16 chars).
+                // Append the time so the crosshair label disambiguates
+                // between bars on the same calendar day. Daily-base
+                // bars stay at 10 chars and render as `MM/DD/YYYY`
+                // (date only).
+                if full.len() >= 16 {
+                    let hhmm = &full[11..16];
+                    format!("{}/{}/{} {}", mm, dd, yyyy, hhmm)
+                } else {
+                    format!("{}/{}/{}", mm, dd, yyyy)
+                }
             } else {
                 full.to_string()
             }
@@ -108,7 +118,10 @@ pub fn paint_crosshair(
     };
     if !date_text.is_empty() {
         let font = FontId::monospace(11.0);
-        let date_label_size = Vec2::new(80.0, 18.0);
+        // Wider for the intraday `MM/DD/YYYY HH:MM` form (16 chars)
+        // than the daily `MM/DD/YYYY` (10 chars).
+        let label_width = if date_text.len() > 12 { 120.0 } else { 80.0 };
+        let date_label_size = Vec2::new(label_width, 18.0);
         let date_label_rect = Rect::from_min_size(
             Pos2::new(
                 snapped_x - date_label_size.x / 2.0,
