@@ -12,15 +12,12 @@ use zaned_theme as theme;
 
 const VERTICAL_LINE_ID: &str = "vertical_line";
 
-/// Fixed modal dimensions — stays constant across Style/Position tabs so the
-/// window doesn't resize when the user switches tabs.
+/// Fixed modal width — passed to the shadcn dialog so the panel keeps a
+/// stable horizontal extent across tab switches.
 const MODAL_WIDTH: f32 = 460.0;
 const MODAL_HEIGHT: f32 = 420.0;
 
-const HEADER_H: f32 = 40.0;
 const TAB_H: f32 = 32.0;
-const ACTION_H: f32 = 44.0;
-const H_PAD: f32 = 16.0;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -73,7 +70,7 @@ impl DrawingSettingsModal {
         self.active_tab = Tab::Style;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, manager: &mut DrawingsManager, data: &CandleData) {
+    pub fn show(&mut self, ui: &mut egui::Ui, manager: &mut DrawingsManager, data: &CandleData) {
         if !self.open {
             return;
         }
@@ -105,64 +102,25 @@ impl DrawingSettingsModal {
             .map(|t| t.default_kind_style())
             .unwrap_or(KindStyle::None);
 
-        let modal_size = Vec2::new(MODAL_WIDTH, MODAL_HEIGHT);
         let mut should_close = false;
         let mut should_reset = false;
         let mut changed = false;
 
-        egui::Window::new("Drawing Settings")
-            .title_bar(false)
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size(modal_size)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::SURFACE)
-                    .stroke(Stroke::new(1.0, theme::BORDER_HOVER))
-                    .corner_radius(CornerRadius::same(8))
-                    .inner_margin(egui::Margin::ZERO),
-            )
-            .show(ctx, |ui| {
-                ui.set_min_height(MODAL_HEIGHT);
+        // Borrow workaround: dialog needs `&mut bool` for `open`, but the body
+        // closure also captures `&mut self`. Read into a local, sync back after.
+        let mut open = self.open;
+        let theme_ref = crate::shadcn_theme::theme();
+
+        egui_shadcn::dialog(
+            ui,
+            theme_ref,
+            egui_shadcn::DialogProps::new(egui::Id::new("drawing_settings_modal"), &mut open)
+                .title(display_name)
+                .width(MODAL_WIDTH)
+                .height(MODAL_HEIGHT)
+                .scrollable(false),
+            |ui| {
                 ui.style_mut().animation_time = 0.15;
-
-                // ── Header band ──────────────────────────────────────────────
-                let (header_rect, _) = ui
-                    .allocate_exact_size(Vec2::new(ui.available_width(), HEADER_H), Sense::hover());
-
-                // macOS close dot (red)
-                let close_center = Pos2::new(header_rect.left() + H_PAD, header_rect.center().y);
-                let close_id = ui.id().with("close_btn");
-                let close_hit = Rect::from_center_size(close_center, Vec2::splat(16.0));
-                let close_resp = ui.interact(close_hit, close_id, Sense::click());
-                let dot_col = if close_resp.hovered() {
-                    Color32::from_rgb(255, 110, 100)
-                } else {
-                    Color32::from_rgb(255, 95, 87)
-                };
-                ui.painter().circle_filled(close_center, 5.5, dot_col);
-                if close_resp.clicked() {
-                    should_close = true;
-                }
-                if close_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-
-                // Centered title
-                ui.painter().text(
-                    header_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    &display_name,
-                    FontId::proportional(14.0),
-                    theme::TEXT_PRIMARY,
-                );
-
-                // Hairline divider below header
-                ui.painter().hline(
-                    header_rect.left()..=header_rect.right(),
-                    header_rect.bottom(),
-                    Stroke::new(1.0, theme::BORDER),
-                );
 
                 // ── Tab bar ──────────────────────────────────────────────────
                 let position_tab_label = if def_id == VERTICAL_LINE_ID {
@@ -177,7 +135,7 @@ impl DrawingSettingsModal {
                 let painter = ui.painter();
                 let tabs = [(Tab::Style, "Style"), (Tab::Position, position_tab_label)];
                 let tab_w = 80.0_f32;
-                let mut tx = tab_rect.left() + H_PAD;
+                let mut tx = tab_rect.left();
 
                 for (tab, label) in tabs {
                     let is_active = self.active_tab == tab;
@@ -241,109 +199,69 @@ impl DrawingSettingsModal {
                 );
 
                 // ── Content area ─────────────────────────────────────────────
-                // Reserve ACTION_H + 1px divider for the action row at the
-                // bottom. The form card fills the rest.
+                // Reserve ~48px for the action row footer below.
                 let avail = ui.available_size();
-                let content_height = (avail.y - ACTION_H - 1.0).max(0.0);
+                let footer_h = 48.0_f32;
+                let content_height = (avail.y - footer_h).max(0.0);
 
                 ui.allocate_ui(Vec2::new(avail.x, content_height), |ui| {
-                    // 16px outer padding so the card doesn't touch the modal
-                    // edge on any side.
                     let inner_margin = egui::Margin::same(16);
                     egui::Frame::new()
                         .fill(theme::SURFACE_HIGH)
                         .corner_radius(CornerRadius::same(6))
                         .inner_margin(inner_margin)
-                        .outer_margin(egui::Margin::same(12))
+                        .outer_margin(egui::Margin::symmetric(0, 12))
                         .show(ui, |ui| {
                             ui.set_min_size(Vec2::new(ui.available_width(), content_height - 24.0));
-                            match self.active_tab {
-                                Tab::Style => {
-                                    changed |= self.draw_style_tab(ui, extend_caps);
+                            // scroll_area lets the Position tab handle a
+                            // polyline with many points without overflowing
+                            // the modal; the Style tab is short but free.
+                            let scroll_props = egui_shadcn::ScrollAreaProps::default()
+                                .id(ui.make_persistent_id("drawing_settings_scroll"))
+                                .auto_shrink([false; 2]);
+                            egui_shadcn::scroll_area(ui, theme_ref, scroll_props, |ui| {
+                                match self.active_tab {
+                                    Tab::Style => {
+                                        changed |= self.draw_style_tab(ui, extend_caps);
+                                    }
+                                    Tab::Position => {
+                                        changed |= self.draw_position_tab(ui, def_id, data);
+                                    }
                                 }
-                                Tab::Position => {
-                                    changed |= self.draw_position_tab(ui, def_id, data);
-                                }
-                            }
+                            });
                         });
                 });
 
                 // ── Action row ───────────────────────────────────────────────
-                // Hairline above action row
-                let action_top = ui.cursor().top();
-                ui.painter().hline(
-                    0.0..=MODAL_WIDTH,
-                    action_top,
-                    Stroke::new(1.0, theme::BORDER),
-                );
+                ui.allocate_ui_with_layout(
+                    Vec2::new(ui.available_width(), footer_h),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if egui_shadcn::Button::new("Done")
+                            .variant(egui_shadcn::ButtonVariant::Default)
+                            .show(ui, crate::shadcn_theme::theme())
+                            .clicked()
+                        {
+                            should_close = true;
+                        }
 
-                let (action_rect, _) = ui
-                    .allocate_exact_size(Vec2::new(ui.available_width(), ACTION_H), Sense::hover());
+                        ui.add_space(8.0);
 
-                // Reset to Defaults — ghost outlined button (left)
-                let reset_id = ui.id().with("reset_btn");
-                let reset_rect = Rect::from_min_size(
-                    Pos2::new(action_rect.left() + H_PAD, action_rect.center().y - 16.0),
-                    Vec2::new(148.0, 32.0),
+                        if egui_shadcn::Button::new("Reset to Defaults")
+                            .variant(egui_shadcn::ButtonVariant::Outline)
+                            .show(ui, crate::shadcn_theme::theme())
+                            .clicked()
+                        {
+                            should_reset = true;
+                        }
+                    },
                 );
-                let reset_resp = ui.interact(reset_rect, reset_id, Sense::click());
-                let reset_t = ui
-                    .ctx()
-                    .animate_bool_responsive(reset_id, reset_resp.hovered());
-                let border_col = lerp_color(theme::BORDER_HOVER, theme::TEXT_MUTED, reset_t * 0.6);
-                let text_col = lerp_color(theme::TEXT_MUTED, theme::TEXT_PRIMARY, reset_t * 0.7);
-                ui.painter().rect(
-                    reset_rect,
-                    CornerRadius::same(6),
-                    Color32::TRANSPARENT,
-                    Stroke::new(1.0, border_col),
-                    egui::StrokeKind::Inside,
-                );
-                ui.painter().text(
-                    reset_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Reset to Defaults",
-                    FontId::proportional(12.0),
-                    text_col,
-                );
-                if reset_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if reset_resp.clicked() {
-                    should_reset = true;
-                }
+            },
+        );
 
-                // Done — solid accent CTA (right)
-                let done_id = ui.id().with("done_btn");
-                let done_rect = Rect::from_min_size(
-                    Pos2::new(
-                        action_rect.right() - H_PAD - 96.0,
-                        action_rect.center().y - 16.0,
-                    ),
-                    Vec2::new(96.0, 32.0),
-                );
-                let done_resp = ui.interact(done_rect, done_id, Sense::click());
-                let done_t = ui
-                    .ctx()
-                    .animate_bool_responsive(done_id, done_resp.hovered());
-                // Slightly dim fill on hover (fade back 15%)
-                let done_fill = lerp_color(theme::ACCENT, theme::SURFACE_HIGH, done_t * 0.15);
-                ui.painter()
-                    .rect_filled(done_rect, CornerRadius::same(6), done_fill);
-                ui.painter().text(
-                    done_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Done",
-                    FontId::proportional(13.0),
-                    Color32::WHITE,
-                );
-                if done_resp.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if done_resp.clicked() {
-                    should_close = true;
-                }
-            });
+        // Sync `open` back: dialog may have toggled it via the close
+        // button / scrim / Escape key.
+        self.open = open;
 
         if should_reset {
             self.draft_style = DrawingStyle::default();
@@ -746,8 +664,6 @@ impl DrawingSettingsModal {
     }
 }
 
-// ── Helper: linear-interpolate two Color32 values ─────────────────────────────
-
 /// Applies the modal's standard field visuals to a `Ui` scope: dark elevated
 /// surface, bright readable text, subtle border that lights up on hover/focus.
 /// Used by every numeric input + slider numeric box on the Style and Position
@@ -770,15 +686,6 @@ fn apply_field_visuals(ui: &mut egui::Ui) {
     vis.widgets.active.bg_stroke = egui::Stroke::new(1.0, theme::ACCENT_TEAL);
     vis.widgets.open.bg_stroke = egui::Stroke::new(1.0, theme::ACCENT_TEAL);
     vis.selection.bg_fill = theme::ACCENT_TEAL;
-}
-
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let t = t.clamp(0.0, 1.0);
-    Color32::from_rgb(
-        (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t) as u8,
-        (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t) as u8,
-        (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t) as u8,
-    )
 }
 
 fn date_for_index(data: &CandleData, index: f32) -> String {

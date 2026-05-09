@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+egui-shadcn = { path = "../egui-shadcn" }
 zaned-api-client = { path = "../../shared-crates/api-client" }
 zaned-chart-core = { path = "../chart-core" }
 zaned-database = { path = "../database" }

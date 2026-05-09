@@ -305,7 +305,7 @@ impl ChartToolbar {
                 });
             });
 
-        self.indicator_modal.show(ui.ctx(), manager);
+        self.indicator_modal.show(ui, manager);
 
         if let Some(IndicatorBarEvent::OpenModal) = &bar_event {
             self.indicator_modal.open = true;
@@ -464,7 +464,6 @@ const MODAL_BG: Color32 = Color32::from_rgb(16, 16, 20);
 const MODAL_BORDER: Color32 = Color32::from_rgb(38, 38, 44);
 const MODAL_TEXT: Color32 = Color32::from_rgb(230, 230, 234);
 const MODAL_TEXT_MUTED: Color32 = Color32::from_rgb(170, 170, 178);
-const MODAL_PRIMARY_BG: Color32 = Color32::from_rgb(58, 130, 246);
 const MODAL_PRIMARY_TEXT: Color32 = Color32::from_rgb(255, 255, 255);
 const MODAL_HELP_FG: Color32 = Color32::from_rgb(45, 145, 130);
 
@@ -510,25 +509,22 @@ fn show_clear_drawings_modal(ctx: &egui::Context, open: &mut bool, confirmed: &m
                     ui.add_space(18.0);
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let primary = egui::Button::new(
+                        let primary = egui_shadcn::Button::new(
                             RichText::new("Delete").size(13.0).color(MODAL_PRIMARY_TEXT),
                         )
-                        .fill(MODAL_PRIMARY_BG)
-                        .corner_radius(CornerRadius::same(6))
-                        .min_size(Vec2::new(96.0, 32.0));
-                        if ui.add(primary).clicked() {
+                        .variant(egui_shadcn::ButtonVariant::Destructive)
+                        .show(ui, crate::shadcn_theme::theme());
+                        if primary.clicked() {
                             *confirmed = true;
                             *open = false;
                         }
                         ui.add_space(8.0);
-                        let secondary = egui::Button::new(
+                        let secondary = egui_shadcn::Button::new(
                             RichText::new("Cancel").size(13.0).color(MODAL_TEXT_MUTED),
                         )
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::new(1.0, MODAL_BORDER))
-                        .corner_radius(CornerRadius::same(6))
-                        .min_size(Vec2::new(96.0, 32.0));
-                        if ui.add(secondary).clicked() {
+                        .variant(egui_shadcn::ButtonVariant::Outline)
+                        .show(ui, crate::shadcn_theme::theme());
+                        if secondary.clicked() {
                             *open = false;
                         }
                     });

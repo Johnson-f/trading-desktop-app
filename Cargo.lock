@@ -9385,6 +9385,7 @@ dependencies = [
  "eframe",
  "egui 0.34.1",
  "egui-phosphor",
+ "egui-shadcn",
  "egui-wgpu",
  "egui_extras",
  "futures",

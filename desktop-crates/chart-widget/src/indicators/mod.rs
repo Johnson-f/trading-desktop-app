@@ -9,5 +9,4 @@ pub use manager::{ActiveIndicator, IndicatorEvent, IndicatorManager};
 pub use params::{ParamField, ParamKind, ParamSchema, ParamValue, ParamValues};
 pub use registry::all;
 pub use registry::get;
-pub use trait_def::RenderTarget;
 pub use zaned_chart_core::{ComputedSeries, LegendEntry};

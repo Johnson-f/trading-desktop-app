@@ -25,6 +25,7 @@ mod pane;
 mod range;
 mod range_markers;
 mod renderer;
+mod shadcn_theme;
 mod util;
 
 use egui::mutex::Mutex;
@@ -335,14 +336,14 @@ impl ChartWidget {
         ));
         self.apply_legend_actions(pending);
 
-        self.settings_modal.show(ui.ctx(), &mut self.manager);
+        self.settings_modal.show(ui, &mut self.manager);
         if !self.drawings_hidden {
             self.paint_drawings(ui, chart_rect, full_rect);
             self.paint_drawing_hover_tooltip(ui, chart_rect, full_rect);
             self.paint_drawing_selection(ui, chart_rect, full_rect);
         }
         self.drawing_settings_modal
-            .show(ui.ctx(), &mut self.drawings, &self.data);
+            .show(ui, &mut self.drawings, &self.data);
 
         if let Some(ref date) = self.ghost_cursor_date {
             let camera = self.camera.lock();

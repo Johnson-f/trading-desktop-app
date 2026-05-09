@@ -6,7 +6,6 @@ use super::super::super::indicators::{
 
 const TEXT_WHITE: Color32 = Color32::from_rgb(240, 240, 242);
 const TEXT_MUTED: Color32 = Color32::from_rgb(160, 160, 170);
-const ACCENT: Color32 = Color32::from_rgb(78, 205, 196);
 const BG: Color32 = Color32::from_rgb(24, 24, 28);
 const BORDER: Color32 = Color32::from_rgb(50, 50, 55);
 
@@ -43,19 +42,20 @@ pub fn show(
 
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                let cancel = ui.add(
-                    egui::Button::new(RichText::new("Cancel").size(11.0).color(TEXT_MUTED))
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::new(1.0, BORDER)),
-                );
+                let cancel = egui_shadcn::Button::new(
+                    RichText::new("Cancel").size(11.0).color(TEXT_MUTED),
+                )
+                .variant(egui_shadcn::ButtonVariant::Outline)
+                .show(ui, crate::shadcn_theme::theme());
                 if cancel.clicked() {
                     response = ParamsResponse::Cancel;
                 }
 
-                let confirm = ui.add(
-                    egui::Button::new(RichText::new(confirm_label).size(11.0).color(TEXT_WHITE))
-                        .fill(ACCENT),
-                );
+                let confirm = egui_shadcn::Button::new(
+                    RichText::new(confirm_label).size(11.0).color(TEXT_WHITE),
+                )
+                .variant(egui_shadcn::ButtonVariant::Default)
+                .show(ui, crate::shadcn_theme::theme());
                 if confirm.clicked() {
                     response = ParamsResponse::Confirm;
                 }

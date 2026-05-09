@@ -8,34 +8,6 @@ use super::range::Range;
 use super::renderer::ChartCallback;
 
 /// Single-letter label for Timeframe — used in the compact footer row.
-/// Apply theme-aware visuals INSIDE a ComboBox popup closure. The popup
-/// uses a fresh egui `Area` whose Visuals don't inherit our parent-scope
-/// overrides, so without this the highlighted/selected row paints with
-/// egui's default bright blue `selection.bg_fill`. Call as the first
-/// statement inside `ComboBox::show_ui(...)`.
-fn apply_dropdown_popup_visuals(ui: &mut egui::Ui) {
-    use zaned_theme::{BORDER, SURFACE, SURFACE_HIGH, TEXT_PRIMARY};
-    let v = &mut ui.style_mut().visuals;
-    v.extreme_bg_color = SURFACE;
-    v.window_fill = SURFACE;
-    v.panel_fill = SURFACE;
-    v.window_stroke = egui::Stroke::new(1.0, BORDER);
-    // Hovered row inside the popup — soft elevated band.
-    v.widgets.hovered.weak_bg_fill = SURFACE_HIGH;
-    v.widgets.hovered.bg_fill = SURFACE_HIGH;
-    v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
-    v.widgets.active.weak_bg_fill = SURFACE_HIGH;
-    v.widgets.active.bg_fill = SURFACE_HIGH;
-    v.widgets.active.bg_stroke = egui::Stroke::NONE;
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
-    // Selected row (when not hovered) — egui's `selectable_value` reads
-    // `selection.bg_fill` for this. Default is bright blue. Use a subtle
-    // SURFACE_HIGH band so the teal text on top reads cleanly.
-    v.selection.bg_fill = SURFACE_HIGH;
-    v.selection.stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
-}
-
 fn timeframe_short(tf: Timeframe) -> &'static str {
     match tf {
         Timeframe::Minute1 => "1m",
@@ -96,7 +68,7 @@ impl ChartWidget {
 
     fn paint_footer_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         use zaned_theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
-        use eframe::egui::{Align, ComboBox, CornerRadius, FontId, Layout, RichText, Vec2};
+        use eframe::egui::{Align, CornerRadius, Layout, RichText, Vec2};
 
         let mut new_timeframe: Option<Timeframe> = None;
         let current_tf = self.timeframe;
@@ -153,23 +125,27 @@ impl ChartWidget {
                 ui.add_space(4.0);
 
                 let prev_range = self.selected_range;
-                ComboBox::from_id_salt("chart_range_dropdown")
-                    .selected_text(
-                        RichText::new(self.selected_range.label())
-                            .font(FontId::monospace(11.0))
-                            .color(ACCENT_TEAL),
+                let mut selected_range_label = Some(self.selected_range.label().to_string());
+                let range_items: Vec<egui_shadcn::SelectItem> = Range::ALL
+                    .iter()
+                    .map(|r| egui_shadcn::SelectItem::option(r.label(), r.label()))
+                    .collect();
+                egui_shadcn::select_with_items(
+                    ui,
+                    crate::shadcn_theme::theme(),
+                    egui_shadcn::SelectProps::new(
+                        "chart_range_dropdown",
+                        &mut selected_range_label,
                     )
-                    .width(52.0)
-                    .show_ui(ui, |ui| {
-                        apply_dropdown_popup_visuals(ui);
-                        for r in Range::ALL {
-                            let is_selected = self.selected_range == *r;
-                            let text = RichText::new(r.label())
-                                .font(FontId::monospace(11.0))
-                                .color(if is_selected { ACCENT_TEAL } else { TEXT_MUTED });
-                            ui.selectable_value(&mut self.selected_range, *r, text);
-                        }
-                    });
+                    .placeholder("Range")
+                    .width(60.0),
+                    &range_items,
+                );
+                if let Some(label) = selected_range_label.as_deref() {
+                    if let Some(new_range) = Range::ALL.iter().find(|r| r.label() == label) {
+                        self.selected_range = *new_range;
+                    }
+                }
 
                 if prev_range != self.selected_range {
                     let r = self.selected_range;
@@ -189,27 +165,28 @@ impl ChartWidget {
                 ui.label(RichText::new("Interval:").size(11.0).color(TEXT_MUTED));
                 ui.add_space(4.0);
 
-                let mut next_tf = current_tf;
-                ComboBox::from_id_salt("chart_interval_dropdown")
-                    .selected_text(
-                        RichText::new(timeframe_short(current_tf))
-                            .font(FontId::monospace(11.0))
-                            .color(ACCENT_TEAL),
+                let mut selected_tf_label = Some(timeframe_short(current_tf).to_string());
+                let tf_items: Vec<egui_shadcn::SelectItem> = Timeframe::ALL
+                    .iter()
+                    .map(|tf| egui_shadcn::SelectItem::option(timeframe_short(*tf), timeframe_short(*tf)))
+                    .collect();
+                egui_shadcn::select_with_items(
+                    ui,
+                    crate::shadcn_theme::theme(),
+                    egui_shadcn::SelectProps::new(
+                        "chart_interval_dropdown",
+                        &mut selected_tf_label,
                     )
-                    .width(44.0)
-                    .show_ui(ui, |ui| {
-                        apply_dropdown_popup_visuals(ui);
-                        for tf in Timeframe::ALL {
-                            let is_selected = current_tf == *tf;
-                            let text = RichText::new(timeframe_short(*tf))
-                                .font(FontId::monospace(11.0))
-                                .color(if is_selected { ACCENT_TEAL } else { TEXT_MUTED });
-                            ui.selectable_value(&mut next_tf, *tf, text);
+                    .placeholder("Interval")
+                    .width(50.0),
+                    &tf_items,
+                );
+                if let Some(label) = selected_tf_label.as_deref() {
+                    if let Some(new_tf) = Timeframe::ALL.iter().find(|tf| timeframe_short(**tf) == label) {
+                        if *new_tf != current_tf {
+                            new_timeframe = Some(*new_tf);
                         }
-                    });
-
-                if next_tf != current_tf {
-                    new_timeframe = Some(next_tf);
+                    }
                 }
 
                 // Auto toggle — far right
