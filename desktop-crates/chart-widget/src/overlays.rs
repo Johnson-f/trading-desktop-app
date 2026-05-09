@@ -14,7 +14,7 @@ use super::renderer::ChartCallback;
 /// egui's default bright blue `selection.bg_fill`. Call as the first
 /// statement inside `ComboBox::show_ui(...)`.
 fn apply_dropdown_popup_visuals(ui: &mut egui::Ui) {
-    use crate::theme::{BORDER, SURFACE, SURFACE_HIGH, TEXT_PRIMARY};
+    use zaned_theme::{BORDER, SURFACE, SURFACE_HIGH, TEXT_PRIMARY};
     let v = &mut ui.style_mut().visuals;
     v.extreme_bg_color = SURFACE;
     v.window_fill = SURFACE;
@@ -88,14 +88,14 @@ impl ChartWidget {
                 egui::pos2(footer_rect.left() + 8.0, footer_rect.top()),
                 egui::pos2(footer_rect.right() - 8.0, footer_rect.top()),
             ],
-            egui::Stroke::new(0.5, crate::theme::BORDER),
+            egui::Stroke::new(0.5, zaned_theme::BORDER),
         );
 
         self.paint_footer_row(ui, footer_rect);
     }
 
     fn paint_footer_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        use crate::theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
+        use zaned_theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
         use eframe::egui::{Align, ComboBox, CornerRadius, FontId, Layout, RichText, Vec2};
 
         let mut new_timeframe: Option<Timeframe> = None;
@@ -110,7 +110,7 @@ impl ChartWidget {
             // row's text unreadable inside the popup. Force every surface
             // to use our theme tokens.
             {
-                use crate::theme::{BG, BORDER, SURFACE, TEXT_PRIMARY};
+                use zaned_theme::{BG, BORDER, SURFACE, TEXT_PRIMARY};
                 let visuals = &mut ui.style_mut().visuals;
                 // Trigger button (closed/open) — blend with the footer's BG
                 // so it reads as inline chrome, not a pill on top of the bar.
@@ -299,7 +299,7 @@ impl ChartWidget {
 
         // Caret toggle button — rendered between OHLC row and indicator legend.
         {
-            use crate::theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
+            use zaned_theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
             use egui::{Align2, FontId, Pos2, Rect, Sense, Vec2};
 
             let btn_top = chart_rect.top() + 8.0 + ticker_height + 4.0 + ohlc_height + 6.0;

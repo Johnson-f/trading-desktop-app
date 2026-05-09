@@ -23,18 +23,12 @@
 //! `parse_ymd` (which only reads the first 10 chars) still works for
 //! drawings anchoring and date-axis labels.
 
-use std::sync::RwLock;
-
 use chrono::{DateTime, Duration, Utc};
 use tokio::sync::oneshot;
 use zaned_api_client::{ApiClient, BarUnit, BucketInput, HistoricalBar};
 use zaned_chart_core::{BaseScale, CandleData, CandleInstance};
 
-use crate::api::client::SERVER_URL;
-use crate::auth::{AuthState, AuthStateHandle};
-
-static RUNTIME_HANDLE: RwLock<Option<tokio::runtime::Handle>> = RwLock::new(None);
-static AUTH_STATE: RwLock<Option<AuthStateHandle>> = RwLock::new(None);
+use crate::config;
 
 /// Lookback per fetch on the daily base. One chunk = 5 years of daily
 /// bars (~1,250 trading days), well under the server's 5,000-row limit.
@@ -51,18 +45,6 @@ const DAILY_LOOKBACK_DAYS: i64 = 365 * 5;
 const MINUTE_LOOKBACK_HOURS: i64 = 24 * 7;
 
 const DEFAULT_LIMIT: i32 = 5000;
-
-/// Wire up the loader. Must be called once at app boot before any
-/// `load_*_async` call. Subsequent calls overwrite the slots, which is
-/// fine — the handles are cheap to clone.
-pub fn init(handle: tokio::runtime::Handle, auth: AuthStateHandle) {
-    if let Ok(mut g) = RUNTIME_HANDLE.write() {
-        *g = Some(handle);
-    }
-    if let Ok(mut g) = AUTH_STATE.write() {
-        *g = Some(auth);
-    }
-}
 
 /// Initial fetch ending at `now`, sized to the base scale. Returns a
 /// `oneshot::Receiver` the caller polls each frame; resolves to
@@ -127,27 +109,38 @@ fn load_range_async(
     to: DateTime<Utc>,
 ) -> oneshot::Receiver<Result<CandleData, String>> {
     let (tx, rx) = oneshot::channel();
-    let (Ok(handle_guard), Ok(auth_guard)) = (RUNTIME_HANDLE.read(), AUTH_STATE.read()) else {
-        let _ = tx.send(Err("candle_loader: lock poisoned".into()));
-        return rx;
+    let runtime = match config::runtime_handle() {
+        Some(h) => h,
+        None => {
+            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            return rx;
+        }
     };
-    let (Some(handle), Some(auth)) = (handle_guard.clone(), auth_guard.clone()) else {
-        let _ = tx.send(Err("candle_loader not initialized".into()));
-        return rx;
+    let auth = match config::auth() {
+        Some(a) => a,
+        None => {
+            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            return rx;
+        }
     };
-    drop(handle_guard);
-    drop(auth_guard);
+    let server_url = match config::server_url() {
+        Some(s) => s,
+        None => {
+            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            return rx;
+        }
+    };
 
-    handle.spawn(async move {
-        let bearer = match auth.snapshot().await {
-            AuthState::Authenticated { access_token, .. } => access_token,
-            other => {
-                let _ = tx.send(Err(format!("not authenticated: {other:?}")));
+    runtime.spawn(async move {
+        let bearer = match auth.bearer_boxed().await {
+            Ok(token) => token,
+            Err(msg) => {
+                let _ = tx.send(Err(msg));
                 return;
             }
         };
 
-        let client = ApiClient::new(SERVER_URL).with_bearer(bearer);
+        let client = ApiClient::new(&server_url).with_bearer(bearer);
 
         let payload = match client
             .historical_bars(symbol, bucket_for(scale), from, to, Some(DEFAULT_LIMIT))

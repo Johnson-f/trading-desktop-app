@@ -15,19 +15,16 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "bytemuck",
  "chrono",
  "dirs",
  "dotenvy",
  "eframe",
  "egui",
  "egui-phosphor",
- "egui-wgpu",
  "egui_extras",
  "futures",
  "image",
  "keyring",
- "kurbo",
  "oauth2",
  "rand 0.8.6",
  "reqwest 0.12.28",
@@ -41,10 +38,10 @@ dependencies = [
  "url",
  "urlencoding",
  "webbrowser",
- "wgpu",
  "zaned-api-client",
- "zaned-chart-core",
+ "zaned-chart-widget",
  "zaned-database",
+ "zaned-theme",
 ]
 
 [[package]]
@@ -9042,6 +9039,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "zaned-chart-widget"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "chrono",
+ "eframe",
+ "egui",
+ "egui-phosphor",
+ "egui-wgpu",
+ "egui_extras",
+ "futures",
+ "image",
+ "kurbo",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "wgpu",
+ "zaned-api-client",
+ "zaned-chart-core",
+ "zaned-database",
+ "zaned-theme",
+]
+
+[[package]]
 name = "zaned-database"
 version = "0.1.0"
 dependencies = [
@@ -9083,6 +9106,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wiremock",
+]
+
+[[package]]
+name = "zaned-theme"
+version = "0.1.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]

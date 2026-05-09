@@ -44,7 +44,7 @@ pub fn paint_price_axis(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
         Pos2::new(gutter_x, chart_rect.top()),
         Pos2::new(chart_rect.right(), chart_rect.bottom()),
     );
-    painter.rect_filled(gutter_rect, 0.0, crate::theme::BG);
+    painter.rect_filled(gutter_rect, 0.0, zaned_theme::BG);
 
     // 2. Vertical hairline divider on the gutter's left edge.
     painter.line_segment(
@@ -52,7 +52,7 @@ pub fn paint_price_axis(ui: &egui::Ui, chart_rect: Rect, camera: &Camera, data: 
             Pos2::new(gutter_x, chart_rect.top()),
             Pos2::new(gutter_x, chart_rect.bottom()),
         ],
-        Stroke::new(1.0, crate::theme::BORDER),
+        Stroke::new(1.0, zaned_theme::BORDER),
     );
 
     let price_bottom = camera.y_offset;

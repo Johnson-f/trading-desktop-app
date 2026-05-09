@@ -3,7 +3,7 @@
 //! these tokens rather than defining local Color32 / dimension
 //! constants. Modeled after Webull's dark-trading aesthetic.
 
-use eframe::egui::Color32;
+use egui::Color32;
 
 // ── Surfaces ───────────────────────────────────────────────────
 /// App background. Pure black to match Webull's chart canvas.

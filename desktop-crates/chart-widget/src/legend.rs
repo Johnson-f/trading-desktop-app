@@ -134,7 +134,7 @@ pub(super) fn paint_ticker_info_row(
     timeframe_label: &str,
     anchor: egui::Pos2,
 ) -> f32 {
-    use crate::theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+    use zaned_theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
     use egui::{FontId, Pos2, Rect, Stroke, Vec2};
 
     let painter = ui.painter_at(clip_rect);

@@ -8,7 +8,7 @@ use super::super::super::drawings::{
     FIB_RATIO_COUNT, KindStyle, WorldPoint,
 };
 use super::super::super::util::{core_color, egui_color};
-use crate::theme;
+use zaned_theme as theme;
 
 const VERTICAL_LINE_ID: &str = "vertical_line";
 

@@ -1,5 +1,12 @@
+//! Chart widget — egui-based candlestick chart with indicators,
+//! drawings, multi-pane layout, and async data loading.
+//!
+//! Use [`init`] at application boot to wire up the runtime handle and
+//! bearer-token provider before constructing any [`ChartWidget`].
+
 mod camera;
 mod candle;
+mod config;
 mod controls;
 mod crosshair;
 mod data_loading;
@@ -11,6 +18,7 @@ mod indicators;
 mod interaction;
 mod layout;
 mod legend;
+pub mod loader;
 pub mod multi_charts;
 mod overlays;
 mod pane;
@@ -27,6 +35,7 @@ static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
 
 use camera::Camera;
 pub use candle::{CandleData, JsonCandle, Timeframe};
+pub use config::{BearerProvider, Config, init};
 use controls::{ChartToolbar, DrawingSettingsModal, IndicatorBarEvent, SettingsModal};
 use data_loading::parse_date_to_utc_midnight;
 use drawings::DrawingsManager;
@@ -208,7 +217,7 @@ impl ChartWidget {
             self.earliest_loaded_ts = None;
             if let Some(symbol) = self.symbol.clone() {
                 self.pending_candles_load =
-                    Some(crate::api::candle_loader::load_async(symbol, new_scale));
+                    Some(crate::loader::candle_loader::load_async(symbol, new_scale));
             }
             // Camera re-fits when the new data lands (`set_data` does
             // it). Don't fit to empty data here — that just centers on
@@ -397,7 +406,7 @@ impl ChartWidget {
         // Kick off async loads — the per-frame poll helpers swap each
         // result in once its future resolves.
         self.pending_drawings_load = Some(drawings::persistence::load_async(symbol.clone()));
-        self.pending_candles_load = Some(crate::api::candle_loader::load_async(
+        self.pending_candles_load = Some(crate::loader::candle_loader::load_async(
             symbol.clone(),
             self.timeframe.base_scale(),
         ));
@@ -410,7 +419,7 @@ impl ChartWidget {
         // WebSocket on the spawned task's next send) before opening a
         // new subscription for `symbol`.
         self.pending_ticks = None;
-        self.pending_ticks = Some(crate::api::tick_stream::subscribe(symbol));
+        self.pending_ticks = Some(crate::loader::tick_stream::subscribe(symbol));
     }
 
     /// Toggle whether the indicator-legend rows below the OHLC row are shown.
@@ -538,4 +547,3 @@ impl ChartWidget {
     }
 
 }
-

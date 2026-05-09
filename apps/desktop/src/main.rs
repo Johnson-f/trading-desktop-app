@@ -1,13 +1,36 @@
 mod api;
 mod auth;
 mod components;
-mod theme;
-mod ui_components;
 
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
-use ui_components::widgets::charts::multi_charts::{self, MultiChartWidget};
-use ui_components::widgets::charts::{CandleData, ChartWidget};
+use zaned_chart_widget::multi_charts::{self, MultiChartWidget};
+use zaned_chart_widget::{CandleData, ChartWidget};
+
+use crate::auth::{AuthState, AuthStateHandle};
+
+/// Adapter over `AuthStateHandle` that satisfies `chart_widget::BearerProvider`.
+/// The chart-widget crate doesn't know how the desktop app authenticates; we
+/// snapshot the auth state on each fetch and forward the access token (or a
+/// stringly-typed error if the user isn't signed in).
+struct AuthBearerProvider {
+    state: AuthStateHandle,
+}
+
+impl AuthBearerProvider {
+    fn new(state: AuthStateHandle) -> Self {
+        Self { state }
+    }
+}
+
+impl zaned_chart_widget::BearerProvider for AuthBearerProvider {
+    async fn bearer(&self) -> Result<String, String> {
+        match self.state.snapshot().await {
+            AuthState::Authenticated { access_token, .. } => Ok(access_token),
+            other => Err(format!("not authenticated: {other:?}")),
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -91,15 +114,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     auth::refresh::spawn(clerk_cfg.clone(), auth_state.clone());
 
     // Initialize drawing defaults with database
-    ui_components::widgets::charts::drawings::init_with_database(
+    zaned_chart_widget::drawings::init_with_database(
         db_pool.clone(),
         runtime_handle.clone(),
     );
 
     // Wire the candle loader so symbol changes can fetch from the gateway.
-    api::candle_loader::init(runtime_handle.clone(), auth_state.clone());
     api::symbol_search::init(runtime_handle.clone(), auth_state.clone());
-    api::tick_stream::init(runtime_handle.clone(), auth_state.clone());
+
+    // Wire the chart-widget crate's loaders. The crate is auth- and
+    // server-agnostic; we hand it a runtime handle, the gateway URL, and
+    // a `BearerProvider` over the desktop app's `AuthStateHandle`.
+    zaned_chart_widget::init(zaned_chart_widget::Config {
+        runtime: runtime_handle.clone(),
+        server_url: api::client::SERVER_URL.to_string(),
+        auth: std::sync::Arc::new(AuthBearerProvider::new(auth_state.clone())),
+    });
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

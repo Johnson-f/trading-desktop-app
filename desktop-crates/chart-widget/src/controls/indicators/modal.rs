@@ -4,7 +4,7 @@ use eframe::egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, RichText, St
 
 use super::super::super::indicators::{self, IndicatorManager, ParamValues, RenderTarget};
 use super::params_popover::{ParamsResponse, show as show_params_popover};
-use crate::theme;
+use zaned_theme as theme;
 
 // ── Category lookup ────────────────────────────────────────────────────────────
 /// Maps an indicator `def_id` to a display category label.

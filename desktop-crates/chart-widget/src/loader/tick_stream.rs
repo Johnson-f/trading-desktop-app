@@ -1,6 +1,6 @@
 //! Live tick-stream subscription bridge.
 //!
-//! Mirrors the loader pattern in [`crate::api::candle_loader`]: a
+//! Mirrors the loader pattern in [`crate::loader::candle_loader`]: a
 //! once-initialized tokio handle + auth handle live in static slots,
 //! and `subscribe(symbol)` returns an `mpsc::UnboundedReceiver` the
 //! chart drains each frame.
@@ -10,28 +10,11 @@
 //! receiver (e.g. on symbol change), the next send fails and the task
 //! exits cleanly — taking the WebSocket connection down with it.
 
-use std::sync::RwLock;
-
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use zaned_api_client::{ApiClient, TickEvent};
 
-use crate::api::client::SERVER_URL;
-use crate::auth::{AuthState, AuthStateHandle};
-
-static RUNTIME_HANDLE: RwLock<Option<tokio::runtime::Handle>> = RwLock::new(None);
-static AUTH_STATE: RwLock<Option<AuthStateHandle>> = RwLock::new(None);
-
-/// Wire up the subscriber. Must be called once at app boot before any
-/// `subscribe` call. Subsequent calls overwrite the slots.
-pub fn init(handle: tokio::runtime::Handle, auth: AuthStateHandle) {
-    if let Ok(mut g) = RUNTIME_HANDLE.write() {
-        *g = Some(handle);
-    }
-    if let Ok(mut g) = AUTH_STATE.write() {
-        *g = Some(auth);
-    }
-}
+use crate::config;
 
 /// Open a tick subscription for `symbol`. Returns a receiver the
 /// caller polls each frame; events arrive in arrival order.
@@ -46,27 +29,38 @@ pub fn init(handle: tokio::runtime::Handle, auth: AuthStateHandle) {
 pub fn subscribe(symbol: String) -> mpsc::UnboundedReceiver<TickEvent> {
     let (tx, rx) = mpsc::unbounded_channel();
 
-    let (Ok(handle_guard), Ok(auth_guard)) = (RUNTIME_HANDLE.read(), AUTH_STATE.read()) else {
-        tracing::warn!("tick_stream: lock poisoned");
-        return rx;
+    let runtime = match config::runtime_handle() {
+        Some(h) => h,
+        None => {
+            tracing::warn!("chart-widget not initialized (call chart_widget::init first)");
+            return rx;
+        }
     };
-    let (Some(handle), Some(auth)) = (handle_guard.clone(), auth_guard.clone()) else {
-        tracing::warn!("tick_stream not initialized");
-        return rx;
+    let auth = match config::auth() {
+        Some(a) => a,
+        None => {
+            tracing::warn!("chart-widget not initialized (call chart_widget::init first)");
+            return rx;
+        }
     };
-    drop(handle_guard);
-    drop(auth_guard);
+    let server_url = match config::server_url() {
+        Some(s) => s,
+        None => {
+            tracing::warn!("chart-widget not initialized (call chart_widget::init first)");
+            return rx;
+        }
+    };
 
-    handle.spawn(async move {
-        let bearer = match auth.snapshot().await {
-            AuthState::Authenticated { access_token, .. } => access_token,
-            other => {
-                tracing::warn!(symbol = %symbol, ?other, "tick subscribe: not authenticated");
+    runtime.spawn(async move {
+        let bearer = match auth.bearer_boxed().await {
+            Ok(token) => token,
+            Err(msg) => {
+                tracing::warn!(symbol = %symbol, error = %msg, "tick subscribe: not authenticated");
                 return;
             }
         };
 
-        let client = ApiClient::new(SERVER_URL).with_bearer(bearer);
+        let client = ApiClient::new(&server_url).with_bearer(bearer);
         let stream = match client.subscribe_ticks(vec![symbol.clone()]).await {
             Ok(s) => s,
             Err(e) => {

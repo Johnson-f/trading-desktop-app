@@ -106,7 +106,7 @@ impl ChartWidget {
             return;
         }
         drop(camera);
-        self.pending_older_candles_load = Some(crate::api::candle_loader::load_older_async(
+        self.pending_older_candles_load = Some(crate::loader::candle_loader::load_older_async(
             symbol,
             self.timeframe.base_scale(),
             before,
