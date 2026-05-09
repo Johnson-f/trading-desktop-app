@@ -7,3 +7,4 @@ members = [
     "desktop-crates/*",
     "server-crates/*",
 ]
+exclude = ["desktop-crates/shadcn-rs"]
