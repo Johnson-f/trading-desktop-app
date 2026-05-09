@@ -1,0 +1,26 @@
+# Rust
+/target
+/target-codex-check
+**/*.rs.bk
+**/dist
+**/dist-egui
+**/dist-iced
+
+# Cargo
+/Cargo.lock
+/.kiro/
+/powers_ref/
+/docs/
+
+# Node/Next reference app
+# reference/
+
+# Editor/OS
+/.vscode
+/.idea
+/.cursor
+/.context
+**/*.log
+/scripts
+
+PLAN.md

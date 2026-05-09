@@ -1,0 +1,54 @@
+name: Deploy WASM Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Download Trunk
+        run: |
+          wget -qO- https://github.com/trunk-rs/trunk/releases/latest/download/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf-
+          sudo mv trunk /usr/local/bin/
+
+      - name: Build WASM Demo
+        run: |
+          cd crates/wasm-demo
+          rm -rf dist
+          # Build Iced version into dist/iced
+          trunk build iced.html --release -d dist/iced --public-url /shadcn-rs/iced/ --filehash false
+          # Build Egui version into dist/egui
+          trunk build egui.html --release -d dist/egui --public-url /shadcn-rs/egui/ --filehash false
+          # Copy main switcher index.html to dist/
+          cp index.html dist/index.html
+          # Disable Jekyll processing on GitHub Pages
+          touch dist/.nojekyll
+
+      - name: Verify generated dist layout
+        run: |
+          ls -la crates/wasm-demo/dist
+          ls -la crates/wasm-demo/dist/iced
+          ls -la crates/wasm-demo/dist/egui
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: crates/wasm-demo/dist
+          branch: gh-pages
+          clean: true
+          single-commit: true

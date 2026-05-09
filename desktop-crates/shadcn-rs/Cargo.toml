@@ -1,0 +1,30 @@
+[workspace]
+members = ["crates/egui-shadcn", "crates/iced-shadcn", "crates/shadcn-rs-cli", "crates/wasm-demo"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+version = "0.5.0"
+authors = ["FerrisMind"]
+homepage = "https://github.com/FerrisMind/shadcn-rs"
+repository = "https://github.com/FerrisMind/shadcn-rs"
+description = "Shadcn and Radix UI-inspired component library for the Rust GUI (egui)"
+
+[workspace.dependencies]
+log = "0.4"
+env_logger = "0.11"
+
+[profile.dev]
+incremental = true
+opt-level = 1
+debug = 1
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false

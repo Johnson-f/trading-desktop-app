@@ -1,0 +1,175 @@
+use lucide_icons::Icon;
+
+pub const COMPONENT_SLUGS: [&str; 51] = [
+    "accordion",
+    "alert",
+    "alert_dialog",
+    "aspect_ratio",
+    "avatar",
+    "badge",
+    "breadcrumb",
+    "button",
+    "button_group",
+    "calendar",
+    "card",
+    "carousel",
+    "chart",
+    "checkbox",
+    "collapsible",
+    "combobox",
+    "command",
+    "context_menu",
+    "data_table",
+    "date_picker",
+    "dialog",
+    "dropdown_menu",
+    "form",
+    "hover_card",
+    "input",
+    "input_otp",
+    "kbd",
+    "label",
+    "navigation_menu",
+    "pagination",
+    "popover",
+    "progress",
+    "radio",
+    "resizable",
+    "scroll_area",
+    "select",
+    "separator",
+    "sheet",
+    "sidebar",
+    "skeleton",
+    "slider",
+    "spinner",
+    "switch",
+    "table",
+    "tabs",
+    "textarea",
+    "toast",
+    "toggle",
+    "toggle_group",
+    "tooltip",
+    "typography",
+];
+
+#[cfg(target_arch = "wasm32")]
+pub fn component_index_by_slug(slug: &str) -> Option<usize> {
+    COMPONENT_SLUGS.iter().position(|entry| *entry == slug)
+}
+
+pub fn component_title(slug: &str) -> String {
+    slug.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    format!("{}{}", first.to_ascii_uppercase(), chars.as_str())
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn component_icon(slug: &str) -> Icon {
+    match slug {
+        "accordion" => Icon::ChevronDown,
+        "alert" | "alert_dialog" => Icon::TriangleAlert,
+        "aspect_ratio" => Icon::Scan,
+        "avatar" => Icon::CircleUserRound,
+        "badge" => Icon::BadgeCheck,
+        "breadcrumb" => Icon::ChevronRight,
+        "button" | "button_group" => Icon::MousePointer2,
+        "calendar" | "date_picker" => Icon::Calendar,
+        "card" => Icon::CreditCard,
+        "carousel" => Icon::GalleryHorizontalEnd,
+        "chart" => Icon::ChartColumn,
+        "checkbox" => Icon::Check,
+        "collapsible" => Icon::PanelTopClose,
+        "combobox" | "command" => Icon::Search,
+        "context_menu" | "dropdown_menu" | "navigation_menu" => Icon::Menu,
+        "data_table" | "table" => Icon::TableProperties,
+        "dialog" | "sheet" | "sidebar" => Icon::PanelsTopLeft,
+        "form" => Icon::FileText,
+        "hover_card" => Icon::MousePointerClick,
+        "input" | "input_otp" | "textarea" => Icon::TextCursorInput,
+        "kbd" => Icon::Keyboard,
+        "label" => Icon::Tag,
+        "pagination" => Icon::ChevronsLeftRight,
+        "popover" | "tooltip" => Icon::MessageCircleMore,
+        "progress" | "spinner" => Icon::LoaderCircle,
+        "radio" => Icon::CircleDot,
+        "resizable" => Icon::PanelLeftClose,
+        "scroll_area" => Icon::ScrollText,
+        "select" => Icon::ListFilter,
+        "separator" => Icon::Minus,
+        "skeleton" => Icon::Bone,
+        "slider" => Icon::SlidersHorizontal,
+        "switch" | "toggle" | "toggle_group" => Icon::ToggleLeft,
+        "tabs" => Icon::Rows3,
+        "toast" => Icon::Bell,
+        "typography" => Icon::Type,
+        _ => Icon::Component,
+    }
+}
+
+pub fn component_code(slug: &str) -> &'static str {
+    match slug {
+        "accordion" => include_str!("demos/accordion.rs"),
+        "alert" => include_str!("demos/alert.rs"),
+        "alert_dialog" => include_str!("demos/alert_dialog.rs"),
+        "aspect_ratio" => include_str!("demos/aspect_ratio.rs"),
+        "avatar" => include_str!("demos/avatar.rs"),
+        "badge" => include_str!("demos/badge.rs"),
+        "breadcrumb" => include_str!("demos/breadcrumb.rs"),
+        "button" => include_str!("demos/button.rs"),
+        "button_group" => include_str!("demos/button_group.rs"),
+        "calendar" => include_str!("demos/calendar.rs"),
+        "card" => include_str!("demos/card.rs"),
+        "carousel" => include_str!("demos/carousel.rs"),
+        "chart" => include_str!("demos/chart.rs"),
+        "checkbox" => include_str!("demos/checkbox.rs"),
+        "collapsible" => include_str!("demos/collapsible.rs"),
+        "combobox" => include_str!("demos/combobox.rs"),
+        "command" => include_str!("demos/command.rs"),
+        "context_menu" => include_str!("demos/context_menu.rs"),
+        "data_table" => include_str!("demos/data_table.rs"),
+        "date_picker" => include_str!("demos/date_picker.rs"),
+        "dialog" => include_str!("demos/dialog.rs"),
+        "dropdown_menu" => include_str!("demos/dropdown_menu.rs"),
+        "form" => include_str!("demos/form.rs"),
+        "hover_card" => include_str!("demos/hover_card.rs"),
+        "input" => include_str!("demos/input.rs"),
+        "input_otp" => include_str!("demos/input_otp_preview.rs"),
+        "kbd" => include_str!("demos/kbd_preview.rs"),
+        "label" => include_str!("demos/label.rs"),
+        "navigation_menu" => include_str!("demos/navigation_menu.rs"),
+        "pagination" => include_str!("demos/pagination.rs"),
+        "popover" => include_str!("demos/popover.rs"),
+        "progress" => include_str!("demos/progress.rs"),
+        "radio" => include_str!("demos/radio_preview.rs"),
+        "resizable" => include_str!("demos/resizable.rs"),
+        "scroll_area" => include_str!("demos/scroll_area_preview.rs"),
+        "select" => include_str!("demos/select_preview.rs"),
+        "separator" => include_str!("demos/separator.rs"),
+        "sheet" => include_str!("demos/sheet.rs"),
+        "sidebar" => include_str!("demos/sidebar.rs"),
+        "skeleton" => include_str!("demos/skeleton.rs"),
+        "slider" => include_str!("demos/slider.rs"),
+        "spinner" => include_str!("demos/spinner.rs"),
+        "switch" => include_str!("demos/switch_preview.rs"),
+        "table" => include_str!("demos/table_preview.rs"),
+        "tabs" => include_str!("demos/tabs.rs"),
+        "textarea" => include_str!("demos/textarea.rs"),
+        "toast" => include_str!("demos/toast.rs"),
+        "toggle" => include_str!("demos/toggle.rs"),
+        "toggle_group" => include_str!("demos/toggle_group.rs"),
+        "tooltip" => include_str!("demos/tooltip.rs"),
+        "typography" => include_str!("demos/typography_preview.rs"),
+        _ => "",
+    }
+}
