@@ -30,10 +30,7 @@ pub(super) struct FamilyGroup {
 }
 
 impl ChartWidget {
-    pub(super) fn apply_legend_actions(
-        &mut self,
-        actions: Vec<(u64, LegendAction, ParamValues)>,
-    ) {
+    pub(super) fn apply_legend_actions(&mut self, actions: Vec<(u64, LegendAction, ParamValues)>) {
         for (id, action, params) in actions {
             match action {
                 LegendAction::OpenSettings => self.settings_modal.open_for(id, params),
@@ -134,8 +131,8 @@ pub(super) fn paint_ticker_info_row(
     timeframe_label: &str,
     anchor: egui::Pos2,
 ) -> f32 {
-    use zaned_theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
     use egui::{FontId, Pos2, Rect, Stroke, Vec2};
+    use zaned_theme::{BORDER, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
     let painter = ui.painter_at(clip_rect);
 

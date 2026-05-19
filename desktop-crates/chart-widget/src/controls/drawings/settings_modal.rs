@@ -219,14 +219,14 @@ impl DrawingSettingsModal {
                             let scroll_props = egui_shadcn::ScrollAreaProps::default()
                                 .id(ui.make_persistent_id("drawing_settings_scroll"))
                                 .auto_shrink([false; 2]);
-                            egui_shadcn::scroll_area(ui, theme_ref, scroll_props, |ui| {
-                                match self.active_tab {
-                                    Tab::Style => {
-                                        changed |= self.draw_style_tab(ui, extend_caps);
-                                    }
-                                    Tab::Position => {
-                                        changed |= self.draw_position_tab(ui, def_id, data);
-                                    }
+                            egui_shadcn::scroll_area(ui, theme_ref, scroll_props, |ui| match self
+                                .active_tab
+                            {
+                                Tab::Style => {
+                                    changed |= self.draw_style_tab(ui, extend_caps);
+                                }
+                                Tab::Position => {
+                                    changed |= self.draw_position_tab(ui, def_id, data);
                                 }
                             });
                         });

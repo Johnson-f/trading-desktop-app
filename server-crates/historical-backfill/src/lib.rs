@@ -8,7 +8,7 @@
 //!      of 1-min bars in `bars_1m`.
 //!
 //! On startup, runs an immediate cycle once before entering the
-//! schedule loop — so a fresh deploy populates ClickHouse without
+//! schedule loop — so a fresh deploy populates the warehouse without
 //! waiting until the next 02:00 UTC.
 //!
 //! # Embedding
@@ -20,56 +20,58 @@
 //! to log-and-forget or restart.
 
 mod bar;
-mod clickhouse;
 mod config;
 mod daily_sync;
 mod minute_sync;
 mod scheduler;
 mod universe;
+mod warehouse;
 mod yahoo;
 
 pub use config::Config;
+
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::bar::Bar;
+    pub use crate::warehouse::{Table, Warehouse};
+}
 
 use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::clickhouse::ClickhouseClient;
 use crate::scheduler::wait_until_next_run;
 use crate::universe::fetch_universe;
+use crate::warehouse::Warehouse;
 use crate::yahoo::YahooSource;
 
 /// Run the backfill scheduler forever. Caller is expected to
 /// `tokio::spawn` this; cancellation occurs when the runtime shuts
-/// down. Returns `Err` only if initial setup (ClickHouse client build,
+/// down. Returns `Err` only if initial setup (warehouse client build,
 /// table creation) fails — once the loop starts, transient cycle
 /// errors are logged and the next cycle proceeds.
 pub async fn run(cfg: Config) -> Result<()> {
     tracing::info!(
-        clickhouse = %cfg.clickhouse_url,
-        database = %cfg.clickhouse_database,
+        catalog_uri = %cfg.catalog_uri,
+        warehouse = %cfg.warehouse_name,
+        namespace = %cfg.namespace,
         schedule_hour_utc = cfg.schedule_hour_utc,
         yahoo_workers = cfg.yahoo_workers,
         "historical-backfill starting"
     );
 
-    let ch = Arc::new(ClickhouseClient::new(
-        &cfg.clickhouse_url,
-        &cfg.clickhouse_user,
-        &cfg.clickhouse_password,
-        &cfg.clickhouse_database,
-    )?);
-    ch.ensure_table().await?;
+    let wh = Warehouse::connect(&cfg).await?;
+    wh.ensure_tables().await?;
 
     let yahoo = Arc::new(YahooSource::new());
 
     loop {
-        run_cycle(ch.clone(), yahoo.clone(), cfg.yahoo_workers).await;
+        run_cycle(wh.clone(), yahoo.clone(), cfg.yahoo_workers).await;
         wait_until_next_run(cfg.schedule_hour_utc).await;
     }
 }
 
-async fn run_cycle(ch: Arc<ClickhouseClient>, yahoo: Arc<YahooSource>, workers: usize) {
+async fn run_cycle(wh: Warehouse, yahoo: Arc<YahooSource>, workers: usize) {
     let universe = match fetch_universe().await {
         Ok(u) => u,
         Err(e) => {
@@ -79,12 +81,12 @@ async fn run_cycle(ch: Arc<ClickhouseClient>, yahoo: Arc<YahooSource>, workers: 
     };
     tracing::info!(symbol_count = universe.len(), "cycle: universe fetched");
 
-    if let Err(e) = daily_sync::run_daily_sync(&universe, ch.clone(), yahoo.clone(), workers).await
+    if let Err(e) = daily_sync::run_daily_sync(&universe, wh.clone(), yahoo.clone(), workers).await
     {
         tracing::error!(error = ?e, "daily sync failed");
     }
 
-    if let Err(e) = minute_sync::run_minute_sync(&universe, ch, yahoo, workers).await {
+    if let Err(e) = minute_sync::run_minute_sync(&universe, wh, yahoo, workers).await {
         tracing::error!(error = ?e, "minute sync failed");
     }
 }

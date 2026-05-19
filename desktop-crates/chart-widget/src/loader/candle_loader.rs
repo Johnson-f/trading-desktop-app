@@ -112,21 +112,27 @@ fn load_range_async(
     let runtime = match config::runtime_handle() {
         Some(h) => h,
         None => {
-            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            let _ = tx.send(Err(
+                "chart-widget not initialized (call chart_widget::init first)".into(),
+            ));
             return rx;
         }
     };
     let auth = match config::auth() {
         Some(a) => a,
         None => {
-            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            let _ = tx.send(Err(
+                "chart-widget not initialized (call chart_widget::init first)".into(),
+            ));
             return rx;
         }
     };
     let server_url = match config::server_url() {
         Some(s) => s,
         None => {
-            let _ = tx.send(Err("chart-widget not initialized (call chart_widget::init first)".into()));
+            let _ = tx.send(Err(
+                "chart-widget not initialized (call chart_widget::init first)".into(),
+            ));
             return rx;
         }
     };

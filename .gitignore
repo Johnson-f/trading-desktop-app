@@ -5,3 +5,4 @@ apps/server/.env
 apps/symbol-service/.env
 .env
 .env.local
+.wrangler/

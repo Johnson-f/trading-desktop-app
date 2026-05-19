@@ -1,59 +1,69 @@
-//! Environment configuration for historical-service. Yahoo-only — no FMP,
-//! no Redis, no per-page concurrency knobs. Yahoo throttles aggressive
-//! fetchers so we cap concurrency low (8 workers default).
+//! Runtime configuration loaded from the process environment. The
+//! gateway loads `.env` (via the gateway binary, not this crate) before
+//! calling `Config::from_env`.
+
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub clickhouse_url: String,
-    pub clickhouse_user: String,
-    pub clickhouse_password: String,
-    pub clickhouse_database: String,
-    /// Hour (0–23, UTC) at which the daily sync runs. Default 2 (02:00 UTC,
-    /// safely after US market close + late settlement reconciliation).
+    /// Iceberg REST catalog endpoint (read from the Cloudflare dashboard
+    /// after `wrangler r2 bucket catalog enable`).
+    pub catalog_uri: String,
+    /// Warehouse identifier inside the catalog. Cloudflare formats this
+    /// as `<account_hash>_<bucket_name>`.
+    pub warehouse_name: String,
+    /// R2 API token with Admin Read & Write permissions.
+    pub token: String,
+    /// Iceberg namespace under which the `bars_1d` / `bars_1m` tables live.
+    /// Created on first run if absent.
+    pub namespace: String,
+    /// UTC hour of day to start each backfill cycle.
     pub schedule_hour_utc: u32,
-    /// Bounded concurrency for Yahoo fetches. Yahoo silently throttles
-    /// fetchers above ~10 req/s; 8 workers gives us headroom.
+    /// Bounded concurrency for Yahoo HTTP fetches.
     pub yahoo_workers: usize,
 }
 
 impl Config {
+    /// Read configuration from the current process environment.
     pub fn from_env() -> Result<Self> {
-        let clickhouse_url =
-            std::env::var("CLICKHOUSE_URL").context("CLICKHOUSE_URL is required")?;
-        let clickhouse_user =
-            std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".to_string());
-        let clickhouse_password =
-            std::env::var("CLICKHOUSE_PASSWORD").context("CLICKHOUSE_PASSWORD is required")?;
-        let clickhouse_database =
-            std::env::var("CLICKHOUSE_DATABASE").unwrap_or_else(|_| "market_data".to_string());
+        let map: HashMap<String, String> = std::env::vars().collect();
+        Self::from_map(&map)
+    }
 
-        let schedule_hour_utc = std::env::var("SCHEDULE_HOUR_UTC")
-            .ok()
-            .map(|s| s.parse::<u32>())
-            .transpose()
-            .context("SCHEDULE_HOUR_UTC must be an integer in 0..=23")?
+    /// Parse configuration from an arbitrary key→value map. Pure function;
+    /// unit-testable without mutating process-global state.
+    pub fn from_map(map: &HashMap<String, String>) -> Result<Self> {
+        let catalog_uri = map
+            .get("WAREHOUSE_CATALOG_URI")
+            .cloned()
+            .context("WAREHOUSE_CATALOG_URI not set")?;
+        let warehouse_name = map
+            .get("WAREHOUSE_NAME")
+            .cloned()
+            .context("WAREHOUSE_NAME not set")?;
+        let token = map
+            .get("WAREHOUSE_TOKEN")
+            .cloned()
+            .context("WAREHOUSE_TOKEN not set")?;
+        let namespace = map
+            .get("WAREHOUSE_NAMESPACE")
+            .cloned()
+            .unwrap_or_else(|| "market_data".to_string());
+        let schedule_hour_utc = map
+            .get("SCHEDULE_HOUR_UTC")
+            .and_then(|s| s.parse().ok())
             .unwrap_or(2);
-        if schedule_hour_utc > 23 {
-            anyhow::bail!("SCHEDULE_HOUR_UTC must be 0..=23");
-        }
-
-        let yahoo_workers = std::env::var("YAHOO_WORKERS")
-            .ok()
-            .map(|s| s.parse::<usize>())
-            .transpose()
-            .context("YAHOO_WORKERS must be a positive integer")?
+        let yahoo_workers = map
+            .get("YAHOO_WORKERS")
+            .and_then(|s| s.parse().ok())
             .unwrap_or(8);
-        if yahoo_workers == 0 {
-            anyhow::bail!("YAHOO_WORKERS must be > 0");
-        }
-
         Ok(Self {
-            clickhouse_url,
-            clickhouse_user,
-            clickhouse_password,
-            clickhouse_database,
+            catalog_uri,
+            warehouse_name,
+            token,
+            namespace,
             schedule_hour_utc,
             yahoo_workers,
         })
@@ -64,74 +74,52 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn with_env<F: FnOnce()>(vars: &[(&str, Option<&str>)], f: F) {
-        use std::sync::Mutex;
-        static SERIAL_ENV: Mutex<()> = Mutex::new(());
-        let _g = SERIAL_ENV.lock().unwrap();
-        let prev: Vec<_> = vars
-            .iter()
-            .map(|(k, _)| (*k, std::env::var(k).ok()))
-            .collect();
-        for (k, v) in vars {
-            match v {
-                Some(val) => unsafe { std::env::set_var(k, val) },
-                None => unsafe { std::env::remove_var(k) },
-            }
-        }
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        for (k, v) in prev {
-            match v {
-                Some(val) => unsafe { std::env::set_var(k, val) },
-                None => unsafe { std::env::remove_var(k) },
-            }
-        }
-        if let Err(e) = result {
-            std::panic::resume_unwind(e);
-        }
+    fn map<const N: usize>(entries: [(&str, &str); N]) -> HashMap<String, String> {
+        entries
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
-    fn defaults_apply() {
-        with_env(
-            &[
-                ("CLICKHOUSE_URL", Some("http://localhost:8123")),
-                ("CLICKHOUSE_PASSWORD", Some("test")),
-                ("CLICKHOUSE_USER", None),
-                ("CLICKHOUSE_DATABASE", None),
-                ("SCHEDULE_HOUR_UTC", None),
-                ("YAHOO_WORKERS", None),
-            ],
-            || {
-                let cfg = Config::from_env().unwrap();
-                assert_eq!(cfg.clickhouse_user, "default");
-                assert_eq!(cfg.clickhouse_database, "market_data");
-                assert_eq!(cfg.schedule_hour_utc, 2);
-                assert_eq!(cfg.yahoo_workers, 8);
-            },
-        );
+    fn from_map_loads_required_vars_and_defaults() {
+        let cfg = Config::from_map(&map([
+            ("WAREHOUSE_CATALOG_URI", "https://catalog.example/abc/wh"),
+            ("WAREHOUSE_NAME", "abc_wh"),
+            ("WAREHOUSE_TOKEN", "tok"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.catalog_uri, "https://catalog.example/abc/wh");
+        assert_eq!(cfg.warehouse_name, "abc_wh");
+        assert_eq!(cfg.token, "tok");
+        assert_eq!(cfg.namespace, "market_data");
+        assert_eq!(cfg.schedule_hour_utc, 2);
+        assert_eq!(cfg.yahoo_workers, 8);
     }
 
     #[test]
-    fn rejects_zero_workers() {
-        with_env(
-            &[
-                ("CLICKHOUSE_URL", Some("http://localhost:8123")),
-                ("CLICKHOUSE_PASSWORD", Some("test")),
-                ("YAHOO_WORKERS", Some("0")),
-            ],
-            || assert!(Config::from_env().is_err()),
-        );
+    fn from_map_honors_overrides() {
+        let cfg = Config::from_map(&map([
+            ("WAREHOUSE_CATALOG_URI", "u"),
+            ("WAREHOUSE_NAME", "w"),
+            ("WAREHOUSE_TOKEN", "t"),
+            ("WAREHOUSE_NAMESPACE", "custom_ns"),
+            ("SCHEDULE_HOUR_UTC", "14"),
+            ("YAHOO_WORKERS", "16"),
+        ]))
+        .unwrap();
+        assert_eq!(cfg.namespace, "custom_ns");
+        assert_eq!(cfg.schedule_hour_utc, 14);
+        assert_eq!(cfg.yahoo_workers, 16);
     }
 
     #[test]
-    fn rejects_invalid_schedule_hour() {
-        with_env(
-            &[
-                ("CLICKHOUSE_URL", Some("http://localhost:8123")),
-                ("CLICKHOUSE_PASSWORD", Some("test")),
-                ("SCHEDULE_HOUR_UTC", Some("24")),
-            ],
-            || assert!(Config::from_env().is_err()),
-        );
+    fn from_map_errors_when_token_missing() {
+        let err = Config::from_map(&map([
+            ("WAREHOUSE_CATALOG_URI", "u"),
+            ("WAREHOUSE_NAME", "w"),
+        ]))
+        .unwrap_err();
+        assert!(err.to_string().contains("WAREHOUSE_TOKEN"));
     }
 }

@@ -114,10 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     auth::refresh::spawn(clerk_cfg.clone(), auth_state.clone());
 
     // Initialize drawing defaults with database
-    zaned_chart_widget::drawings::init_with_database(
-        db_pool.clone(),
-        runtime_handle.clone(),
-    );
+    zaned_chart_widget::drawings::init_with_database(db_pool.clone(), runtime_handle.clone());
 
     // Wire the candle loader so symbol changes can fetch from the gateway.
     api::symbol_search::init(runtime_handle.clone(), auth_state.clone());

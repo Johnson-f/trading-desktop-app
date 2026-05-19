@@ -1,13 +1,13 @@
-use zaned_theme::{
-    ACCENT, ACCENT_BG, AVATAR, BORDER, BORDER_HOVER, HEADER_HEIGHT, HOVER_BG, ICON_ACTIVE,
-    ICON_HOVER, ICON_INACTIVE, ICON_ROUNDING, NOTIFICATION_DOT, SURFACE, SURFACE_HIGH, TEXT_MUTED,
-    TEXT_PRIMARY,
-};
 use eframe::egui::{
     self, Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Stroke, Vec2,
 };
 use tokio::sync::oneshot;
 use zaned_api_client::Symbol;
+use zaned_theme::{
+    ACCENT, ACCENT_BG, AVATAR, BORDER, BORDER_HOVER, HEADER_HEIGHT, HOVER_BG, ICON_ACTIVE,
+    ICON_HOVER, ICON_INACTIVE, ICON_ROUNDING, NOTIFICATION_DOT, SURFACE, SURFACE_HIGH, TEXT_MUTED,
+    TEXT_PRIMARY,
+};
 
 // ── Dimensions ─────────────────────────────────────────────────
 const AVATAR_SIZE: f32 = 28.0;

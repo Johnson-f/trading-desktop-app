@@ -1,25 +1,27 @@
 //! Minute sync pass: rolling 5-day window of 1-minute candles per
-//! symbol. Stateless — no HWM, no Redis. ReplacingMergeTree(version) on
-//! `bars_1m` dedupes against bars the previous cycle wrote, so re-running
-//! is a no-op for unchanged data.
+//! symbol. Stateless — no HWM. Append-only writes; readers dedupe via
+//! `version` (the `ReplacingMergeTree` semantic preserved in V1).
 //!
-//! The 251 symbols whose deep 2005→present 1-min history was pre-populated
-//! by the legacy FMP run are unaffected — those bars sit at older `ts`
-//! values outside the 5-day window and stay untouched.
+//! Architecture: fetch all symbols, group results by calendar day,
+//! commit one Iceberg snapshot per day in the window. Five snapshots
+//! per cycle is well within the catalog's natural commit cadence.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Result;
+use chrono::NaiveDate;
 use futures::stream::{self, StreamExt};
 
-use crate::clickhouse::ClickhouseClient;
+use crate::bar::Bar;
+use crate::warehouse::{Table, Warehouse};
 use crate::yahoo::YahooSource;
 
-const TABLE: &str = "bars_1m";
+const TABLE: Table = Table::Minute;
 
 pub async fn run_minute_sync(
     universe: &[String],
-    ch: Arc<ClickhouseClient>,
+    wh: Warehouse,
     yahoo: Arc<YahooSource>,
     workers: usize,
 ) -> Result<()> {
@@ -29,12 +31,11 @@ pub async fn run_minute_sync(
         "minute sync: starting"
     );
 
-    let inserted: Vec<(String, Result<usize>)> = stream::iter(universe.iter().cloned())
+    let per_symbol: Vec<(String, Result<Vec<Bar>>)> = stream::iter(universe.iter().cloned())
         .map(|symbol| {
-            let ch = ch.clone();
             let yahoo = yahoo.clone();
             async move {
-                let result = sync_one_symbol(&symbol, &yahoo, &ch).await;
+                let result = yahoo.fetch_minute_window(&symbol).await;
                 (symbol, result)
             }
         })
@@ -42,15 +43,17 @@ pub async fn run_minute_sync(
         .collect()
         .await;
 
-    let mut total_bars: u64 = 0;
+    let mut by_day: BTreeMap<NaiveDate, Vec<Bar>> = BTreeMap::new();
     let mut symbols_synced: u64 = 0;
     let mut symbols_failed: u64 = 0;
 
-    for (symbol, res) in inserted {
+    for (symbol, res) in per_symbol {
         match res {
-            Ok(n) => {
-                total_bars += n as u64;
+            Ok(bars) => {
                 symbols_synced += 1;
+                for bar in bars {
+                    by_day.entry(bar.ts.date_naive()).or_default().push(bar);
+                }
             }
             Err(e) => {
                 symbols_failed += 1;
@@ -59,24 +62,30 @@ pub async fn run_minute_sync(
         }
     }
 
+    let mut total_bars: u64 = 0;
+    let mut days_synced: u64 = 0;
+    let mut days_failed: u64 = 0;
+    for (day, bars) in by_day {
+        match wh.append_bars(TABLE, &bars).await {
+            Ok(n) => {
+                tracing::debug!(day = %day, bars = n, "minute sync: committed day");
+                total_bars += n as u64;
+                days_synced += 1;
+            }
+            Err(e) => {
+                days_failed += 1;
+                tracing::warn!(day = %day, error = %e, "minute sync: day failed");
+            }
+        }
+    }
+
     tracing::info!(
         total_bars,
         symbols_synced,
         symbols_failed,
+        days_synced,
+        days_failed,
         "minute sync: complete"
     );
     Ok(())
-}
-
-async fn sync_one_symbol(
-    symbol: &str,
-    yahoo: &YahooSource,
-    ch: &ClickhouseClient,
-) -> Result<usize> {
-    let bars = yahoo.fetch_minute_window(symbol).await?;
-    let n = bars.len();
-    if n > 0 {
-        ch.insert_bars(TABLE, &bars).await?;
-    }
-    Ok(n)
 }

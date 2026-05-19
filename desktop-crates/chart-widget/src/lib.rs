@@ -546,5 +546,4 @@ impl ChartWidget {
             self.clear_all_drawings();
         }
     }
-
 }

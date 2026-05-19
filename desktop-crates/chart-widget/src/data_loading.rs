@@ -18,9 +18,7 @@ pub(super) const OLDER_LOAD_THRESHOLD_BARS: f64 = 100.0;
 /// `candle_loader::bars_to_candle_data` produces) into a UTC midnight
 /// `DateTime`. Used to anchor the next backfill fetch at the earliest
 /// loaded bar. `None` for any input that isn't a 10-char ISO date prefix.
-pub(super) fn parse_date_to_utc_midnight(
-    s: Option<&str>,
-) -> Option<chrono::DateTime<chrono::Utc>> {
+pub(super) fn parse_date_to_utc_midnight(s: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
     let s = s?;
     let date = chrono::NaiveDate::parse_from_str(s.get(..10)?, "%Y-%m-%d").ok()?;
     Some(date.and_hms_opt(0, 0, 0)?.and_utc())

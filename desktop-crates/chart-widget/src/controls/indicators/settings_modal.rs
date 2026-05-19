@@ -122,9 +122,7 @@ impl SettingsModal {
                                 SettingsTab::Style => {
                                     changed |= draw_style(ui, def.params, &mut self.draft);
                                 }
-                                SettingsTab::Introduction => {
-                                    draw_introduction(ui, def.description)
-                                }
+                                SettingsTab::Introduction => draw_introduction(ui, def.description),
                             }
                         });
                     });
@@ -320,4 +318,3 @@ fn draw_empty(ui: &mut egui::Ui, msg: &str) {
         ui.label(RichText::new(msg).color(TEXT_MUTED).size(12.0));
     });
 }
-

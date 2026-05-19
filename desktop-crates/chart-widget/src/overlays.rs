@@ -67,8 +67,8 @@ impl ChartWidget {
     }
 
     fn paint_footer_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        use zaned_theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
         use eframe::egui::{Align, CornerRadius, Layout, RichText, Vec2};
+        use zaned_theme::{ACCENT_TEAL, BORDER, SURFACE_HIGH, TEXT_MUTED};
 
         let mut new_timeframe: Option<Timeframe> = None;
         let current_tf = self.timeframe;
@@ -168,7 +168,9 @@ impl ChartWidget {
                 let mut selected_tf_label = Some(timeframe_short(current_tf).to_string());
                 let tf_items: Vec<egui_shadcn::SelectItem> = Timeframe::ALL
                     .iter()
-                    .map(|tf| egui_shadcn::SelectItem::option(timeframe_short(*tf), timeframe_short(*tf)))
+                    .map(|tf| {
+                        egui_shadcn::SelectItem::option(timeframe_short(*tf), timeframe_short(*tf))
+                    })
                     .collect();
                 egui_shadcn::select_with_items(
                     ui,
@@ -182,7 +184,10 @@ impl ChartWidget {
                     &tf_items,
                 );
                 if let Some(label) = selected_tf_label.as_deref() {
-                    if let Some(new_tf) = Timeframe::ALL.iter().find(|tf| timeframe_short(**tf) == label) {
+                    if let Some(new_tf) = Timeframe::ALL
+                        .iter()
+                        .find(|tf| timeframe_short(**tf) == label)
+                    {
                         if *new_tf != current_tf {
                             new_timeframe = Some(*new_tf);
                         }
@@ -276,8 +281,8 @@ impl ChartWidget {
 
         // Caret toggle button — rendered between OHLC row and indicator legend.
         {
-            use zaned_theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
             use egui::{Align2, FontId, Pos2, Rect, Sense, Vec2};
+            use zaned_theme::{HOVER_BG, ICON_HOVER, ICON_INACTIVE};
 
             let btn_top = chart_rect.top() + 8.0 + ticker_height + 4.0 + ohlc_height + 6.0;
             let btn_rect = Rect::from_min_size(
@@ -357,7 +362,9 @@ impl ChartWidget {
         // the user added them. Instances without a period param keep their
         // insertion order (stable sort).
         for group in &mut groups {
-            group.members.sort_by_key(|m| legend::period_sort_key(&m.params));
+            group
+                .members
+                .sort_by_key(|m| legend::period_sort_key(&m.params));
         }
 
         let mut actions = Vec::new();
@@ -442,7 +449,12 @@ impl ChartWidget {
         actions
     }
 
-    pub(super) fn paint_crosshair(&self, ui: &egui::Ui, chart_rect: egui::Rect, full_rect: egui::Rect) {
+    pub(super) fn paint_crosshair(
+        &self,
+        ui: &egui::Ui,
+        chart_rect: egui::Rect,
+        full_rect: egui::Rect,
+    ) {
         let camera = self.camera.lock();
         crosshair::paint_crosshair(ui, chart_rect, full_rect, &camera, &self.data);
     }

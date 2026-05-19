@@ -7,7 +7,13 @@ edition = "2024"
 markets = { path = "../markets" }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip"] }
-clickhouse = { version = "0.15", features = ["chrono", "inserter", "rustls-tls"] }
+iceberg = "0.9"
+iceberg-catalog-rest = "0.9"
+iceberg-storage-opendal = "0.9"
+arrow = "57"
+arrow-array = "57"
+arrow-schema = "57"
+parquet = "57"
 futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
@@ -20,3 +26,6 @@ async-trait = "0.1"
 
 [dev-dependencies]
 wiremock = "0.6"
+tempfile = "3"
+testcontainers = "0.20"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

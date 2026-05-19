@@ -30,8 +30,7 @@ pub trait BearerProvider: Send + Sync + 'static {
     /// the future can be erased into the object-safe
     /// [`BearerProviderObj`] dispatcher below; the blanket impl
     /// requires `Send` to satisfy the trait-object bound.
-    fn bearer(&self)
-    -> impl std::future::Future<Output = Result<String, String>> + Send;
+    fn bearer(&self) -> impl std::future::Future<Output = Result<String, String>> + Send;
 }
 
 /// Object-safe dispatcher used in the static slot. We can't store

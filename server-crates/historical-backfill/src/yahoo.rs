@@ -62,7 +62,7 @@ impl YahooSource {
 }
 
 fn candles_to_bars(symbol: &str, candles: &[markets::Candle]) -> Vec<Bar> {
-    let version = Utc::now().timestamp() as u32;
+    let version = Utc::now().timestamp();
     candles
         .iter()
         .filter_map(|c| {
@@ -74,7 +74,7 @@ fn candles_to_bars(symbol: &str, candles: &[markets::Candle]) -> Vec<Bar> {
                 high: Bar::cents_from_dollars(c.high),
                 low: Bar::cents_from_dollars(c.low),
                 close: Bar::cents_from_dollars(c.close),
-                volume: (c.volume as i64).max(0) as u32,
+                volume: c.volume.max(0),
                 version,
             })
         })

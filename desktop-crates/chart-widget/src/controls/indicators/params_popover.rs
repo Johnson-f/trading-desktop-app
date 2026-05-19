@@ -42,11 +42,10 @@ pub fn show(
 
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                let cancel = egui_shadcn::Button::new(
-                    RichText::new("Cancel").size(11.0).color(TEXT_MUTED),
-                )
-                .variant(egui_shadcn::ButtonVariant::Outline)
-                .show(ui, crate::shadcn_theme::theme());
+                let cancel =
+                    egui_shadcn::Button::new(RichText::new("Cancel").size(11.0).color(TEXT_MUTED))
+                        .variant(egui_shadcn::ButtonVariant::Outline)
+                        .show(ui, crate::shadcn_theme::theme());
                 if cancel.clicked() {
                     response = ParamsResponse::Cancel;
                 }
