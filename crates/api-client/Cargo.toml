@@ -1,0 +1,18 @@
+[package]
+name = "api-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+graphql_client = { version = "0.16", features = ["reqwest"] }
+chrono = { version = "0.4", features = ["serde"] }
+graphql-ws-client = { version = "0.13", features = ["tungstenite-0.28", "client-graphql-client"] }
+tokio-tungstenite = "0.28"
+tokio = { version = "1", features = ["rt", "macros", "sync"] }
+futures = "0.3"
+thiserror = "2"
+http = "1"
+async-trait = "0.1"

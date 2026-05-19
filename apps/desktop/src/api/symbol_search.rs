@@ -1,4 +1,4 @@
-//! Async symbol-search loader — bridges `zaned_api_client::search_symbols`
+//! Async symbol-search loader — bridges `api_client::search_symbols`
 //! into the search bar's per-frame poll loop.
 //!
 //! Same shape as `candle_loader`: a once-initialized tokio handle + auth
@@ -9,8 +9,8 @@
 
 use std::sync::RwLock;
 
+use api_client::{ApiClient, Symbol};
 use tokio::sync::oneshot;
-use zaned_api_client::{ApiClient, Symbol};
 
 use crate::api::client::SERVER_URL;
 use crate::auth::{AuthState, AuthStateHandle};

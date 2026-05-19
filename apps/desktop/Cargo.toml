@@ -1,13 +1,13 @@
 [package]
-name = "Zaned"
+name = "desktop"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-zaned-api-client = { path = "../../shared-crates/api-client" }
-zaned-chart-widget = { path = "../../desktop-crates/chart-widget" }
-zaned-database = { path = "../../desktop-crates/database" }
-zaned-theme = { path = "../../desktop-crates/theme" }
+api-client = { path = "../../crates/api-client" }
+chart-widget = { path = "../../crates/chart-widget" }
+database = { path = "../../crates/database" }
+theme = { path = "../../crates/theme" }
 eframe = "0.34.1"
 egui = "0.34.1"
 # Image-loader extras: pulls in `ehttp` for HTTP fetching and the `image`

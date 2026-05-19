@@ -1,9 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "apps/desktop",
-    "apps/server/*",
-    "shared-crates/*",
-    "desktop-crates/*",
-    "server-crates/*",
+    "apps/*",
+    "crates/*",
 ]

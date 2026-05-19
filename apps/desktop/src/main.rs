@@ -2,10 +2,10 @@ mod api;
 mod auth;
 mod components;
 
+use chart_widget::multi_charts::{self, MultiChartWidget};
+use chart_widget::{CandleData, ChartWidget};
 use components::{MainSidebar, MiniSidebar, TopHeader, WidgetsControl};
 use eframe::egui;
-use zaned_chart_widget::multi_charts::{self, MultiChartWidget};
-use zaned_chart_widget::{CandleData, ChartWidget};
 
 use crate::auth::{AuthState, AuthStateHandle};
 
@@ -23,7 +23,7 @@ impl AuthBearerProvider {
     }
 }
 
-impl zaned_chart_widget::BearerProvider for AuthBearerProvider {
+impl chart_widget::BearerProvider for AuthBearerProvider {
     async fn bearer(&self) -> Result<String, String> {
         match self.state.snapshot().await {
             AuthState::Authenticated { access_token, .. } => Ok(access_token),
@@ -36,7 +36,7 @@ impl zaned_chart_widget::BearerProvider for AuthBearerProvider {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize database
     println!("Initializing database...");
-    let db = zaned_database::Database::init().await?;
+    let db = database::Database::init().await?;
     println!("✓ Database initialized at: {}", db.path().display());
 
     if let Some(version) = db.get_schema_version().await? {
@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     auth::refresh::spawn(clerk_cfg.clone(), auth_state.clone());
 
     // Initialize drawing defaults with database
-    zaned_chart_widget::drawings::init_with_database(db_pool.clone(), runtime_handle.clone());
+    chart_widget::drawings::init_with_database(db_pool.clone(), runtime_handle.clone());
 
     // Wire the candle loader so symbol changes can fetch from the gateway.
     api::symbol_search::init(runtime_handle.clone(), auth_state.clone());
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wire the chart-widget crate's loaders. The crate is auth- and
     // server-agnostic; we hand it a runtime handle, the gateway URL, and
     // a `BearerProvider` over the desktop app's `AuthStateHandle`.
-    zaned_chart_widget::init(zaned_chart_widget::Config {
+    chart_widget::init(chart_widget::Config {
         runtime: runtime_handle.clone(),
         server_url: api::client::SERVER_URL.to_string(),
         auth: std::sync::Arc::new(AuthBearerProvider::new(auth_state.clone())),

@@ -1,4 +1,4 @@
-//! Thin wrapper around `zaned_api_client::ApiClient` that pins the
+//! Thin wrapper around `api_client::ApiClient` that pins the
 //! server URL at compile time.
 //!
 //! The URL is resolved from the `ZANED_SERVER_URL` env var **at build
@@ -12,7 +12,7 @@
 //! There is no runtime configuration — flipping environments means a
 //! fresh build, which matches the Tauri-style deployment story.
 
-use zaned_api_client::ApiClient;
+use api_client::ApiClient;
 
 /// Compile-time server base URL. Override with `ZANED_SERVER_URL` at
 /// build time; defaults to the local dev gateway.

@@ -4,7 +4,7 @@
 //! and the gateway (or an external CDN treated the same way):
 //!
 //!   - [`client`]        — compile-time `ZANED_SERVER_URL` + thin
-//!                         constructors over `zaned_api_client::ApiClient`.
+//!                         constructors over `api_client::ApiClient`.
 //!   - [`symbol_search`] — async fuzzy symbol search.
 //!   - [`logo`]          — Parqet CDN logo URL helper + render shortcut.
 //!

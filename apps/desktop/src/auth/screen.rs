@@ -22,7 +22,7 @@ impl LoadingScreen {
     pub fn show(&self, ctx: &egui::Context) {
         #[allow(deprecated)]
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().fill(zaned_theme::BG))
+            .frame(egui::Frame::default().fill(theme::BG))
             .show(ctx, |ui| {
                 ui.with_layout(
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
@@ -33,7 +33,7 @@ impl LoadingScreen {
                             ui.label(
                                 egui::RichText::new("Restoring session\u{2026}")
                                     .size(13.0)
-                                    .color(zaned_theme::TEXT_MUTED),
+                                    .color(theme::TEXT_MUTED),
                             );
                         });
                     },
