@@ -5,6 +5,7 @@
 mod append;
 mod catalog;
 mod hwm;
+mod read;
 mod schema;
 mod tables;
 
@@ -100,6 +101,16 @@ impl Warehouse {
             return Ok(0);
         }
         append::append_bars(&*self.catalog, &self.namespace, table, bars).await
+    }
+
+    pub async fn read_bars(
+        &self,
+        table: Table,
+        symbol: &str,
+        from: chrono::DateTime<chrono::Utc>,
+        to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<Bar>> {
+        read::read_bars(&*self.catalog, &self.namespace, table, symbol, from, to).await
     }
 }
 
